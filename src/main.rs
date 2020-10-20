@@ -20,6 +20,6 @@ use anyhow::Result;
 
 fn main() -> Result<()> {
     // readall();
-    println!("{:?}", avg32::load(&"SEEN/SEEN032.TXT"));
+    println!("{:?}", avg32::load(&"SEEN/SEEN604.TXT"));
     Ok(())
 }

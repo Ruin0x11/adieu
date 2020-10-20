@@ -1,5 +1,24 @@
+use nom::error::{ParseError, ErrorKind};
 use nom::IResult;
 use nom::number::streaming::{le_u8, le_u32};
+
+#[derive(Debug, PartialEq)]
+pub enum CustomError<I> {
+  MyError(String),
+  Nom(I, ErrorKind),
+}
+
+impl<I> ParseError<I> for CustomError<I> {
+  fn from_error_kind(input: I, kind: ErrorKind) -> Self {
+    CustomError::Nom(input, kind)
+  }
+
+  fn append(_: I, _: ErrorKind, other: Self) -> Self {
+    other
+  }
+}
+
+type ParseResult<'a, I> = IResult<&'a [u8], I, CustomError<&'a [u8]>>;
 
 #[derive(Debug, PartialEq)]
 pub struct AVG32Scene {
@@ -17,7 +36,7 @@ pub struct Header {
     menu_strings: Vec<String>
 }
 
-named!(c_string<&str>,
+named!(c_string<&[u8], &str, CustomError<&[u8]>>,
     do_parse!(
         s: map_res!(take_until!("\0"), std::str::from_utf8) >>
         tag!("\0") >>
@@ -25,7 +44,7 @@ named!(c_string<&str>,
     )
 );
 
-fn menu_strings<'a, 'b>(input: &'a [u8], menus: &'b [Menu]) -> IResult<&'a [u8], Vec<String>> {
+fn menu_strings<'a, 'b>(input: &'a [u8], menus: &'b [Menu]) -> ParseResult<'a, Vec<String>> {
     let mut str_count = 0;
     for menu in menus {
         str_count = str_count + 1;
@@ -37,7 +56,7 @@ fn menu_strings<'a, 'b>(input: &'a [u8], menus: &'b [Menu]) -> IResult<&'a [u8],
     nom::multi::count(c_string, str_count)(input).map(|(i, s)| (i, s.iter().map(|s| String::from(*s)).collect()))
 }
 
-named!(pub header<Header>,
+named!(pub header<&[u8], Header, CustomError<&[u8]>>,
   do_parse!(
     tag!("TPC32") >>
     take!(0x13) >>
@@ -67,7 +86,7 @@ pub struct Menu {
     submenus: Vec<Submenu>
 }
 
-named!(pub menu<Menu>,
+named!(pub menu<&[u8], Menu, CustomError<&[u8]>>,
     do_parse!(
         id: le_u8 >>
         submenu_count: le_u8 >>
@@ -88,7 +107,7 @@ pub struct Submenu {
     flags: Vec<Flag>
 }
 
-named!(pub submenu<Submenu>,
+named!(pub submenu<&[u8], Submenu, CustomError<&[u8]>>,
     do_parse!(
         id: le_u8 >>
         flag_count: le_u8 >>
@@ -108,7 +127,7 @@ pub struct Flag {
     flags: Vec<u32>
 }
 
-named!(pub flag<Flag>,
+named!(pub flag<&[u8], Flag, CustomError<&[u8]>>,
     do_parse!(
         flag_count: le_u8 >>
         take!(1) >>
@@ -122,16 +141,14 @@ named!(pub flag<Flag>,
 
 pub type Val = u32;
 
-fn scene_value(input: &[u8]) -> IResult<&[u8], Val> {
+fn scene_value(input: &[u8]) -> ParseResult<Val> {
     let num = input[0];
     let l = ((num >> 4) & 7) as usize;
     let mut ret: u32 = 0;
     for i in (0..l).rev() {
-        println!("{}", input[i]);
         ret <<= 4;
         ret |= input[i] as u32;
     }
-    println!("val {} {} {}", num, l, ret);
     Ok((&input[l..], ret))
 }
 
@@ -141,7 +158,7 @@ pub enum SceneText {
     Literal(String)
 }
 
-fn scene_text(input: &[u8]) -> IResult<&[u8], SceneText> {
+fn scene_text(input: &[u8]) -> ParseResult<SceneText> {
     if input[0] == 0x40 {
         let (inp, val) = scene_value(input)?;
         Ok((inp, SceneText::Pointer(val)))
@@ -317,7 +334,7 @@ pub enum GrpCmd {
     LoadToBuf3(SceneText, Val), // 0x54
 }
 
-named!(pub grp_effect<GrpEffect>,
+named!(pub grp_effect<&[u8], GrpEffect, CustomError<&[u8]>>,
        do_parse!(
            file: scene_text >>
                sx1: scene_value >>
@@ -356,7 +373,7 @@ named!(pub grp_effect<GrpEffect>,
        )
 );
 
-fn grp_composite_child(input: &[u8]) -> IResult<&[u8], GrpCompositeChild> {
+fn grp_composite_child(input: &[u8]) -> ParseResult<GrpCompositeChild> {
     let mut inp = input;
     let (i, idx) = le_u8(inp)?;
     inp = i;
@@ -394,7 +411,7 @@ fn grp_composite_child(input: &[u8]) -> IResult<&[u8], GrpCompositeChild> {
 
             GrpCompositeMethod::Move2(srcx1, srcy1, srcx2, srcy2, dstx1, dsty1, arg)
         },
-        _ => unreachable!()
+        _ => return Err(nom::Err::Error(CustomError::MyError(format!("Unknown {}", idx))))
     };
 
     let child = GrpCompositeChild {
@@ -405,7 +422,7 @@ fn grp_composite_child(input: &[u8]) -> IResult<&[u8], GrpCompositeChild> {
     Ok((inp, child))
 }
 
-named!(pub grp_composite<GrpComposite>,
+named!(pub grp_composite<&[u8], GrpComposite, CustomError<&[u8]>>,
        do_parse!(
            count: le_u8 >>
            base_file: scene_text >>
@@ -420,7 +437,7 @@ named!(pub grp_composite<GrpComposite>,
        )
 );
 
-named!(pub grp_composite_indexed<GrpCompositeIndexed>,
+named!(pub grp_composite_indexed<&[u8], GrpCompositeIndexed, CustomError<&[u8]>>,
        do_parse!(
            count: le_u8 >>
            base_file: scene_value >>
@@ -435,7 +452,7 @@ named!(pub grp_composite_indexed<GrpCompositeIndexed>,
        )
 );
 
-named!(pub grp_cmd<GrpCmd>,
+named!(pub grp_cmd<&[u8], GrpCmd, CustomError<&[u8]>>,
        switch!(le_u8,
                0x01 => do_parse!(
                    a: scene_text >>
@@ -514,7 +531,7 @@ named!(pub grp_cmd<GrpCmd>,
        )
 );
 
-named!(pub opcode_0x0b<Opcode>,
+named!(pub opcode_0x0b<&[u8], Opcode, CustomError<&[u8]>>,
        do_parse!(
            a: grp_cmd >>
            (Opcode::Op0x0b(a))
@@ -554,7 +571,7 @@ pub enum SndCmd {
     MovieWaitCancelable2(SceneText, SceneText, Val, Val, Val, Val), // 0x55
 }
 
-named!(pub snd_cmd<SndCmd>,
+named!(pub snd_cmd<&[u8], SndCmd, CustomError<&[u8]>>,
        switch!(le_u8,
                0x01 => do_parse!(
                    a: scene_text >>
@@ -693,7 +710,7 @@ named!(pub snd_cmd<SndCmd>,
        )
 );
 
-named!(pub opcode_0x0e<Opcode>,
+named!(pub opcode_0x0e<&[u8], Opcode, CustomError<&[u8]>>,
        do_parse!(
            a: snd_cmd >>
            (Opcode::Op0x0e(a))
@@ -739,7 +756,7 @@ pub enum Condition {
     FlagLeq(Val, Val)
 }
 
-fn scene_conditions(input: &[u8]) -> IResult<&[u8], Vec<Condition>> {
+fn scene_conditions(input: &[u8]) -> ParseResult<Vec<Condition>> {
     let mut depth = 0;
     let mut conditions = vec![];
     let mut finish = false;
@@ -749,6 +766,7 @@ fn scene_conditions(input: &[u8]) -> IResult<&[u8], Vec<Condition>> {
         let (i, num) = le_u8(inp)?;
         inp = i;
 
+        println!("{:x} num", num);
         let cond = match num {
             0x26 => Condition::And,
             0x27 => Condition::Or,
@@ -815,16 +833,17 @@ fn scene_conditions(input: &[u8]) -> IResult<&[u8], Vec<Condition>> {
                 };
                 Condition::Ret(ret)
             },
-            _ => unreachable!()
+            _ => return Err(nom::Err::Error(CustomError::MyError(format!("Unknown {}", num))))
         };
 
         conditions.push(cond);
+        println!("{:x} num {} depth {} finish", num, depth, finish);
     }
 
     Ok((inp, conditions))
 }
 
-named!(pub opcode_0x15<Opcode>,
+named!(pub opcode_0x15<&[u8], Opcode, CustomError<&[u8]>>,
        do_parse!(
            a: scene_conditions >>
                b: le_u32 >>
@@ -846,7 +865,7 @@ pub enum WaitCmd {
     Wait0x13
 }
 
-named!(pub wait_cmd<WaitCmd>,
+named!(pub wait_cmd<&[u8], WaitCmd, CustomError<&[u8]>>,
     switch!(le_u8,
         0x01 => do_parse!(
             val: scene_value >>
@@ -876,21 +895,21 @@ named!(pub wait_cmd<WaitCmd>,
     )
 );
 
-named!(pub opcode_0x19<Opcode>,
+named!(pub opcode_0x19<&[u8], Opcode, CustomError<&[u8]>>,
        do_parse!(
            a: wait_cmd >>
            (Opcode::Op0x19(a))
        )
 );
 
-named!(pub opcode_0x1c<Opcode>,
+named!(pub opcode_0x1c<&[u8], Opcode, CustomError<&[u8]>>,
        do_parse!(
            a: le_u32 >>
            (Opcode::Op0x1c(a))
        )
 );
 
-named!(pub opcode_0x37<Opcode>,
+named!(pub opcode_0x37<&[u8], Opcode, CustomError<&[u8]>>,
        do_parse!(
            a: scene_value >>
                b: scene_value >>
@@ -898,7 +917,7 @@ named!(pub opcode_0x37<Opcode>,
        )
 );
 
-named!(pub opcode<Opcode>,
+named!(pub opcode<&[u8], Opcode, CustomError<&[u8]>>,
        switch!(le_u8,
                0x01 => value!(Opcode::Op0x01) |
                0x02 => value!(Opcode::Op0x02) |
@@ -992,7 +1011,7 @@ named!(pub opcode<Opcode>,
        )
 );
 
-named!(pub avg32_scene<AVG32Scene>,
+named!(pub avg32_scene<&[u8], AVG32Scene, CustomError<&[u8]>>,
        do_parse!(
            header: header >>
            // opcodes: many0!(opcode) >>
