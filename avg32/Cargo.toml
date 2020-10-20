@@ -1,0 +1,8 @@
+[package]
+name = "avg32"
+version = "0.1.0"
+authors = ["Ruin0x11 <ipickering2@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+nom = "5"
