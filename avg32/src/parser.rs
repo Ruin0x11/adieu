@@ -191,32 +191,42 @@ fn scene_text(input: &[u8]) -> ParseResult<SceneText> {
 
 #[derive(Debug, PartialEq)]
 pub enum FormattedTextCmd {
-    TextPointer(Val) // 0x03
+    Integer(Val), // 0x01
+    IntegerZeroPadded(Val, Val), // 0x02
+    TextPointer(Val), // 0x03
+    Unknown1(Val), // 0x11
+    Unknown2 // 0x13
 }
 
 named!(pub formatted_text_cmd<&[u8], FormattedTextCmd, CustomError<&[u8]>>,
     switch!(le_u8,
-        0x03 => do_parse!(a: scene_value >> (FormattedTextCmd::TextPointer(a)))
+        0x01 => do_parse!(val: scene_value >> (FormattedTextCmd::Integer(val))) |
+        0x02 => do_parse!(val: scene_value >> zeros: scene_value >> (FormattedTextCmd::IntegerZeroPadded(val, zeros))) |
+        0x03 => do_parse!(val: scene_value >> (FormattedTextCmd::TextPointer(val))) |
+        0x11 => do_parse!(val: scene_value >> (FormattedTextCmd::Unknown1(val))) |
+        0x13 => value!(FormattedTextCmd::Unknown2)
     )
 );
 
 #[derive(Debug, PartialEq)]
 pub enum SceneFormattedTextEntry {
+    Command(FormattedTextCmd), // 0x10
+    Unknown, // 0x12
+    Condition(Vec<Condition>), // 0x28
+    TextPointer(Val), // 0xfd
     TextHankaku(String), // 0xfe
     TextZenkaku(String), // 0xff
-    TextPointer(Val), // 0xfd
-    Condition(Vec<Condition>), // 0x28
-    Command(FormattedTextCmd) // 0x10
 }
 
 named!(pub scene_formatted_text_entry<&[u8], SceneFormattedTextEntry, CustomError<&[u8]>>,
        switch!(le_u8,
-               0xfe => do_parse!(a: c_string >> (SceneFormattedTextEntry::TextHankaku(a))) |
-               0xff => do_parse!(a: c_string >> (SceneFormattedTextEntry::TextZenkaku(a))) |
-               0xfd => do_parse!(a: scene_value >> (SceneFormattedTextEntry::TextPointer(a))) |
+               0x10 => do_parse!(a: formatted_text_cmd >> (SceneFormattedTextEntry::Command(a))) |
+               0x12 => value!(SceneFormattedTextEntry::Unknown) |
                0x28 => do_parse!(a: scene_conditions >> (SceneFormattedTextEntry::Condition(a))) |
-               0x10 => do_parse!(a: formatted_text_cmd >> (SceneFormattedTextEntry::Command(a)))
-        )
+               0xfd => do_parse!(a: scene_value >> (SceneFormattedTextEntry::TextPointer(a))) |
+               0xfe => do_parse!(a: c_string >> (SceneFormattedTextEntry::TextHankaku(a))) |
+               0xff => do_parse!(a: c_string >> (SceneFormattedTextEntry::TextZenkaku(a)))
+       )
 );
 
 pub type SceneFormattedText = Vec<SceneFormattedTextEntry>;
@@ -224,7 +234,6 @@ pub type SceneFormattedText = Vec<SceneFormattedTextEntry>;
 named!(pub scene_formatted_text<&[u8], SceneFormattedText, CustomError<&[u8]>>,
     do_parse!(
         res: many_till!(scene_formatted_text_entry, tag!("\0")) >>
-        tag!("\0") >>
         (res.0)
     )
 );
@@ -232,6 +241,21 @@ named!(pub scene_formatted_text<&[u8], SceneFormattedText, CustomError<&[u8]>>,
 //
 // Opcode data
 //
+
+#[derive(Debug, PartialEq)]
+pub enum JumpToSceneCmd {
+    // Call(Pos), // 0x00 (?)
+    Jump(Pos), // 0x01
+    Call2(Pos), // 0x02 (?)
+}
+
+named!(pub jump_to_scene_cmd<&[u8], JumpToSceneCmd, CustomError<&[u8]>>,
+       switch!(le_u8,
+               // 0x00 => do_parse!(a: scene_value >> (JumpToSceneCmd::Call(a))) |
+               0x01 => do_parse!(a: scene_value >> (JumpToSceneCmd::Jump(a))) |
+               0x02 => do_parse!(a: scene_value >> (JumpToSceneCmd::Call2(a)))
+        )
+);
 
 #[derive(Debug, PartialEq)]
 pub enum TextWinCmd {
@@ -607,6 +631,7 @@ pub enum SndCmd {
     MovieWaitCancelable(SceneText, Val, Val, Val, Val), // 0x53
     MovieWait2(SceneText, SceneText, Val, Val, Val, Val), // 0x54
     MovieWaitCancelable2(SceneText, SceneText, Val, Val, Val, Val), // 0x55
+    Unknown1, // 0x60
 }
 
 named!(pub snd_cmd<&[u8], SndCmd, CustomError<&[u8]>>,
@@ -747,14 +772,8 @@ named!(pub snd_cmd<&[u8], SndCmd, CustomError<&[u8]>>,
                    e: scene_value >>
                    f: scene_value >>
                    (SndCmd::MovieWaitCancelable2(a, b, c, d, e, f))
-               )
-       )
-);
-
-named!(pub opcode_0x0e<&[u8], Opcode, CustomError<&[u8]>>,
-       do_parse!(
-           a: snd_cmd >>
-           (Opcode::Sound(a))
+               ) |
+               0x60 => value!(SndCmd::Unknown1)
        )
 );
 
@@ -899,7 +918,7 @@ named!(pub screen_shake_cmd<&[u8], ScreenShakeCmd, CustomError<&[u8]>>,
 #[derive(Debug, PartialEq)]
 pub enum WaitCmd {
     Wait(Val),
-    WaitMouse(Val),
+    WaitMouse(Val, Val),
     SetToBase,
     WaitFromBase(Val),
     WaitFromBaseMouse(Val),
@@ -918,7 +937,8 @@ named!(pub wait_cmd<&[u8], WaitCmd, CustomError<&[u8]>>,
         ) |
         0x02 => do_parse!(
             val: scene_value >>
-            (WaitCmd::WaitMouse(val))
+            cancel_index: scene_value >>
+            (WaitCmd::WaitMouse(val, cancel_index))
         ) |
         0x03 => value!(WaitCmd::SetToBase) |
         0x04 => do_parse!(
@@ -955,6 +975,129 @@ named!(pub ret_cmd<&[u8], RetCmd, CustomError<&[u8]>>,
         0x03 => value!(RetCmd::PopStack) |
         0x06 => value!(RetCmd::ClearStack)
     )
+);
+
+#[derive(Debug, PartialEq)]
+pub enum ScenarioMenuCmd {
+    SetBit(Val), // 0x01
+    SetBit2(Val, Val) // 0x02
+}
+
+named!(pub scenario_menu_cmd<&[u8], ScenarioMenuCmd, CustomError<&[u8]>>,
+    switch!(le_u8,
+        0x01 => do_parse!(index: scene_value >> (ScenarioMenuCmd::SetBit(index))) |
+        0x02 => do_parse!(index: scene_value >> value: scene_value >> (ScenarioMenuCmd::SetBit2(index, value)))
+    )
+);
+
+#[derive(Debug, PartialEq)]
+pub enum TextRankCmd {
+    Set(Val), // 0x01
+    Clear, // 0x02
+}
+
+named!(pub text_rank_cmd<&[u8], TextRankCmd, CustomError<&[u8]>>,
+    switch!(le_u8,
+        0x01 => do_parse!(val: scene_value >> (TextRankCmd::Set(val))) |
+        0x02 => value!(TextRankCmd::Clear)
+    )
+);
+
+#[derive(Debug, PartialEq)]
+pub enum Choice {
+    Choice, // 0x22
+    End // 0x23
+}
+
+#[derive(Debug, PartialEq)]
+pub enum ChoiceCmd {
+    Choice(Val, Option<Vec<SceneFormattedText>>), // 0x01
+    Choice2(Val, Option<Vec<SceneFormattedText>>), // 0x02
+    LoadMenu(Val) // 0x04
+}
+
+named!(pub choice_cmd<&[u8], ChoiceCmd, CustomError<&[u8]>>,
+    switch!(le_u8,
+            0x01 => do_parse!(
+                index: scene_value >>
+                    flag: le_u8 >>
+                    texts: cond!(flag == 0x22,
+                          do_parse!(
+                              opt!(tag!("\0")) >>
+                                  res: many_till!(
+                                      scene_formatted_text,
+                                      tag!([0x23])
+                                  ) >>
+                                  (res.0)
+                        )
+                    ) >>
+                    (ChoiceCmd::Choice(index, texts))
+            ) |
+            0x02 => do_parse!(
+                index: scene_value >>
+                    flag: le_u8 >>
+                    texts: cond!(flag == 0x22,
+                          do_parse!(
+                              opt!(tag!("\0")) >>
+                                  res: many_till!(
+                                      scene_formatted_text,
+                                      tag!([0x23])
+                                  ) >>
+                                  (res.0)
+                        )
+                    ) >>
+                    (ChoiceCmd::Choice2(index, texts))
+            ) |
+        0x04 => do_parse!(index: scene_value >> (ChoiceCmd::LoadMenu(index)))
+    )
+);
+
+#[derive(Debug, PartialEq)]
+pub enum StringCmd {
+    StrcpyLiteral(Val, SceneText), // 0x01
+    Strlen(Val, Val), // 0x02
+    Strcmp(Val, Val, Val), // 0x03
+    Strcat(Val, Val), // 0x04
+    Strcpy(Val, Val), // 0x05
+    Itoa(Val, Val, Val), // 0x06
+    HanToZen(Val), // 0x07
+    Atoi(Val, Val), // 0x08
+}
+
+named!(pub string_cmd<&[u8], StringCmd, CustomError<&[u8]>>,
+    switch!(le_u8,
+        0x01 => do_parse!(dest: scene_value >> text: scene_text >> (StringCmd::StrcpyLiteral(dest, text))) |
+        0x02 => do_parse!(dest: scene_value >> src: scene_value >> (StringCmd::Strlen(dest, src))) |
+        0x03 => do_parse!(dest: scene_value >> text1: scene_value >> text2: scene_value >> (StringCmd::Strcmp(dest, text1, text2))) |
+        0x04 => do_parse!(dest: scene_value >> text: scene_value >> (StringCmd::Strcat(dest, text))) |
+        0x05 => do_parse!(dest: scene_value >> src: scene_value >> (StringCmd::Strcpy(dest, src))) |
+        0x06 => do_parse!(dest: scene_value >> src: scene_value >> ordinal: scene_value >> (StringCmd::Itoa(dest, src, ordinal))) |
+        0x07 => do_parse!(dest: scene_value >> (StringCmd::HanToZen(dest))) |
+        0x08 => do_parse!(dest: scene_value >> src: scene_value >> (StringCmd::Atoi(dest, src)))
+    )
+);
+
+#[derive(Debug, PartialEq)]
+pub enum SetMultiCmd {
+    Val(Val, Val, Val), // 0x01
+    Bit(Val, Val, Val), // 0x02
+}
+
+named!(pub set_multi_cmd<&[u8], SetMultiCmd, CustomError<&[u8]>>,
+       switch!(le_u8,
+                    0x01 => do_parse!(
+                        start_idx: scene_value >>
+                            end_idx: scene_value >>
+                            value: scene_value >>
+                            (SetMultiCmd::Val(start_idx, end_idx, value))
+                    ) |
+                    0x02 => do_parse!(
+                        start_idx: scene_value >>
+                            end_idx: scene_value >>
+                            value: scene_value >>
+                            (SetMultiCmd::Bit(start_idx, end_idx, value))
+                    )
+       )
 );
 
 #[derive(Debug, PartialEq)]
@@ -1665,6 +1808,80 @@ named!(pub flash_grp_cmd<&[u8], FlashGrpCmd, CustomError<&[u8]>>,
 );
 
 #[derive(Debug, PartialEq)]
+pub struct MultiPdtEntry {
+    text: SceneText,
+    data: Val
+}
+
+named!(pub multi_pdt_entry<&[u8], MultiPdtEntry, CustomError<&[u8]>>,
+       do_parse!(
+           text: scene_text >>
+               data: scene_value >>
+               (MultiPdtEntry {
+                   text: text,
+                   data: data
+               })
+       )
+);
+
+#[derive(Debug, PartialEq)]
+pub enum MultiPdtCmd {
+    Slideshow(Val, Val, Vec<MultiPdtEntry>), // 0x03
+    SlideshowLoop(Val, Val, Vec<MultiPdtEntry>), // 0x04
+    StopSlideshowLoop, // 0x05
+    Scroll(u8, Val, Val, Val, Vec<MultiPdtEntry>), // 0x10
+    Scroll2(u8, Val, Val, Val, Vec<MultiPdtEntry>), // 0x20
+    ScrollWithCancel(u8, Val, Val, Val, Val, Vec<MultiPdtEntry>), // 0x30
+}
+
+named!(pub multi_pdt_cmd<&[u8], MultiPdtCmd, CustomError<&[u8]>>,
+       switch!(le_u8,
+               0x03 => do_parse!(
+                   count: le_u8 >>
+                       pos: scene_value >>
+                       wait: scene_value >>
+                       entries: count!(multi_pdt_entry, count as usize) >>
+                       (MultiPdtCmd::Slideshow(pos, wait, entries))
+               ) |
+               0x04 => do_parse!(
+                   count: le_u8 >>
+                       pos: scene_value >>
+                       wait: scene_value >>
+                       entries: count!(multi_pdt_entry, count as usize) >>
+                       (MultiPdtCmd::SlideshowLoop(pos, wait, entries))
+               ) |
+               0x05 => value!(MultiPdtCmd::StopSlideshowLoop) |
+               0x10 => do_parse!(
+                   poscmd: le_u8 >>
+                       count: le_u8 >>
+                       pos: scene_value >>
+                       wait: scene_value >>
+                       pixel: scene_value >>
+                       entries: count!(multi_pdt_entry, count as usize) >>
+                       (MultiPdtCmd::Scroll(poscmd, pos, wait, pixel, entries))
+               ) |
+               0x20 => do_parse!(
+                   poscmd: le_u8 >>
+                       count: le_u8 >>
+                       pos: scene_value >>
+                       wait: scene_value >>
+                       pixel: scene_value >>
+                       entries: count!(multi_pdt_entry, count as usize) >>
+                       (MultiPdtCmd::Scroll2(poscmd, pos, wait, pixel, entries))
+               ) |
+               0x30 => do_parse!(
+                   poscmd: le_u8 >>
+                       count: le_u8 >>
+                       pos: scene_value >>
+                       wait: scene_value >>
+                       pixel: scene_value >>
+                       cancel_index: scene_value >>
+                       entries: count!(multi_pdt_entry, count as usize) >>
+                       (MultiPdtCmd::ScrollWithCancel(poscmd, pos, wait, pixel, cancel_index, entries))
+               ))
+);
+
+#[derive(Debug, PartialEq)]
 pub enum SystemCmd {
     LoadGame(Val), // 0x02
     SaveGame(Val), // 0x03
@@ -1690,6 +1907,109 @@ named!(pub system_cmd<&[u8], SystemCmd, CustomError<&[u8]>>,
                0x35 => do_parse!(a: scene_value >> b: scene_value >> (SystemCmd::Unknown1(a, b))) |
                0x36 => do_parse!(a: scene_value >> b: scene_value >> (SystemCmd::Unknown2(a, b))) |
                0x37 => do_parse!(a: scene_value >> b: scene_value >> (SystemCmd::Unknown3(a, b)))
+       )
+);
+
+#[derive(Debug, PartialEq)]
+pub struct NameInputItem {
+    idx: Val,
+    text: SceneFormattedText
+}
+
+named!(pub name_input_item<&[u8], NameInputItem, CustomError<&[u8]>>,
+       do_parse!(
+           idx: scene_value >>
+               text: scene_formatted_text >>
+               (NameInputItem {
+                   idx: idx,
+                   text: text
+               })
+       )
+);
+
+#[derive(Debug, PartialEq)]
+pub enum NameCmd {
+    InputBox(Val, Val, Val, Val, Val, Val, Val, Val, Val, Val), // 0x01
+    InputBoxFinish(Val), // 0x02
+    InputBoxStart(Val), // 0x03
+    InputBoxClose(Val), // 0x04
+    GetName(Val, Val), // 0x10
+    SetName(Val, Val), // 0x11
+    GetName2(Val, Val), // 0x12
+    NameInputDialog(Val), // 0x20
+    Unknown1(Val, SceneText, Val,  Val, Val, Val, Val, Val, Val, Val, Val), // 0x21
+    NameInputDialogMulti(Vec<NameInputItem>), // 0x24
+    Unknown2, // 0x30
+    Unknown3, // 0x31
+}
+
+named!(pub name_cmd<&[u8], NameCmd, CustomError<&[u8]>>,
+       switch!(le_u8,
+               0x01 => do_parse!(
+                   x: scene_value >>
+                   y: scene_value >>
+                   ex: scene_value >>
+                   ey: scene_value >>
+                   r: scene_value >>
+                   g: scene_value >>
+                   b: scene_value >>
+                   br: scene_value >>
+                   bg: scene_value >>
+                   bb: scene_value >>
+                       (NameCmd::InputBox(x, y, ex, ey, r, g, b, br, bg, bb))
+               ) |
+               0x02 => do_parse!(
+                   idx: scene_value >>
+                       (NameCmd::InputBoxFinish(idx))
+               ) |
+               0x03 => do_parse!(
+                   idx: scene_value >>
+                       (NameCmd::InputBoxStart(idx))
+               ) |
+               0x04 => do_parse!(
+                   idx: scene_value >>
+                       (NameCmd::InputBoxClose(idx))
+               ) |
+               0x10 => do_parse!(
+                   idx: scene_value >>
+                   text: scene_value >>
+                       (NameCmd::GetName(idx, text))
+               ) |
+               0x11 => do_parse!(
+                   idx: scene_value >>
+                   text: scene_value >>
+                       (NameCmd::SetName(idx, text))
+               ) |
+               0x12 => do_parse!(
+                   idx: scene_value >>
+                   text: scene_value >>
+                       (NameCmd::GetName2(idx, text))
+               ) |
+               0x20 => do_parse!(
+                   idx: scene_value >>
+                       (NameCmd::NameInputDialog(idx))
+               ) |
+               0x21 => do_parse!(
+                   idx: scene_value >>
+                   text: scene_text >>
+                   a: scene_value >>
+                   b: scene_value >>
+                   c: scene_value >>
+                   d: scene_value >>
+                   e: scene_value >>
+                   f: scene_value >>
+                   g: scene_value >>
+                   h: scene_value >>
+                   i: scene_value >>
+                       (NameCmd::Unknown1(idx, text, a, b, c, d, e, f, g, h, i))
+               ) |
+               0x24 => do_parse!(
+                   count: le_u8 >>
+                   items: count!(name_input_item, count as usize) >>
+                       (NameCmd::NameInputDialogMulti(items))
+               ) |
+               0x30 => value!(NameCmd::Unknown2) |
+               0x31 => value!(NameCmd::Unknown3)
        )
 );
 
@@ -1749,7 +2069,7 @@ named!(pub area_buffer_cmd<&[u8], AreaBufferCmd, CustomError<&[u8]>>,
 pub enum MouseCtrlCmd {
     WaitForClick, // 0x01
     SetPos(Val, Val, Val), // 0x02
-    FlushData, // 0x03
+    FlushClickData, // 0x03
     CursorOff, // 0x20
     CursorOn // 0x21
 }
@@ -1763,7 +2083,7 @@ named!(pub mouse_ctrl_cmd<&[u8], MouseCtrlCmd, CustomError<&[u8]>>,
                    c: scene_value >>
                    (MouseCtrlCmd::SetPos(a, b, c))
                ) |
-               0x03 => value!(MouseCtrlCmd::FlushData) |
+               0x03 => value!(MouseCtrlCmd::FlushClickData) |
                0x20 => value!(MouseCtrlCmd::CursorOff) |
                0x21 => value!(MouseCtrlCmd::CursorOn)
        )
@@ -1806,7 +2126,7 @@ named!(pub set_vol_cmd<&[u8], SetVolCmd, CustomError<&[u8]>>,
 pub enum NovelModeCmd {
     SetEnabled(Val), // 0x01
     Unknown1(Val), // 0x02
-    Unknown2(Val), // 0x03
+    Unknown2, // 0x03
     Unknown3, // 0x04
     Unknown4, // 0x05
 }
@@ -1815,7 +2135,7 @@ named!(pub novel_mode_cmd<&[u8], NovelModeCmd, CustomError<&[u8]>>,
        switch!(le_u8,
                0x01 => do_parse!(a: scene_value >> (NovelModeCmd::SetEnabled(a))) |
                0x02 => do_parse!(a: scene_value >> (NovelModeCmd::Unknown1(a))) |
-               0x03 => do_parse!(a: scene_value >> (NovelModeCmd::Unknown2(a))) |
+               0x03 => value!(NovelModeCmd::Unknown2) |
                0x04 => value!(NovelModeCmd::Unknown3) |
                0x05 => value!(NovelModeCmd::Unknown4)
        )
@@ -1993,11 +2313,9 @@ named!(pub popup_menu_cmd<&[u8], PopupMenuCmd, CustomError<&[u8]>>,
 
 #[derive(Debug, PartialEq)]
 pub enum Opcode {
-    /// Wait For Mouse
     WaitMouse, // 0x01
     Newline, // 0x02
-    Op0x03,
-    /// Text Window Command
+    WaitMouseText, // 0x03
     TextWin(TextWinCmd), // 0x04
     Op0x05,
     Op0x06,
@@ -2005,20 +2323,18 @@ pub enum Opcode {
     Graphics(GrpCmd), // 0x0b
     Op0x0c,
     Sound(SndCmd), // 0x0e
-    Op0x10,
-    /// Fade In/Out
+    DrawValText(FormattedTextCmd), // 0x10
     Fade(FadeCmd), // 0x13
-    /// Conditional Jump
     Condition(Vec<Condition>, Pos), // 0x15
-    JumpToScene(Val), // 0x16
+    JumpToScene(JumpToSceneCmd), // 0x16
     ScreenShake(ScreenShakeCmd), // 0x17
     Op0x18,
     Wait(WaitCmd), // 0x19
     Op0x1a,
     Call(Pos), // 0x1b
     Jump(Pos), // 0x1c
-    TableCall(u8, Val), // 0x1d
-    TableJump(u8, Val), // 0x1e
+    TableCall(u8, Val, Vec<Pos>), // 0x1d
+    TableJump(u8, Val, Vec<Pos>), // 0x1e
     Return(RetCmd), // 0x20
     Unknown0x22, // 0x22
     Unknown0x23, // 0x23
@@ -2030,10 +2346,10 @@ pub enum Opcode {
     Unknown0x29, // 0x29
     Op0x2c,
     Op0x2d,
-    Op0x2e,
+    ScenarioMenu(ScenarioMenuCmd), // 0x2e
     Op0x2f,
     Op0x30,
-    Op0x31,
+    TextRank(TextRankCmd), // 0x31
     SetFlag(Val, Val), // 0x37
     CopyFlag(Val, Val), // 0x39
     SetValLiteral(Val, Val), // 0x3b
@@ -2054,17 +2370,17 @@ pub enum Opcode {
     AndValSelf(Val, Val), // 0x4f
     OrValSelf(Val, Val), // 0x50
     XorValSelf(Val, Val), // 0x51
-    SetFlagRandom(Val, Val), // 0x56
+    SetFlagRandom(Val), // 0x56
     SetValRandom(Val, Val), // 0x57
-    Op0x58,
-    Op0x59,
+    Choice(ChoiceCmd), // 0x58
+    String(StringCmd), // 0x59
     Op0x5b,
-    Op0x5c,
+    SetMulti(SetMultiCmd), // 0x5c
     Op0x5d,
     Op0x5e,
     Op0x5f,
     System(SystemCmd), // 0x60
-    Op0x61,
+    Name(NameCmd), // 0x61
     Op0x63,
     BufferRegion(BufferRegionGrpCmd), // 0x64
     /// ???
@@ -2073,7 +2389,7 @@ pub enum Opcode {
     Buffer(BufferGrpCmd), // 0x67
     Flash(FlashGrpCmd), // 0x68
     Op0x69,
-    Op0x6a,
+    MultiPdt(MultiPdtCmd), // 0x6a
     Op0x66,
     AreaBuffer(AreaBufferCmd), // 0x6c
     MouseCtrl(MouseCtrlCmd), // 0x6d
@@ -2099,10 +2415,28 @@ named!(pub opcode_0x02<&[u8], Opcode, CustomError<&[u8]>>,
        value!(Opcode::Newline)
 );
 
+named!(pub opcode_0x03<&[u8], Opcode, CustomError<&[u8]>>,
+       value!(Opcode::WaitMouseText)
+);
+
 named!(pub opcode_0x04<&[u8], Opcode, CustomError<&[u8]>>,
        do_parse!(
            a: text_win_cmd >>
            (Opcode::TextWin(a))
+       )
+);
+
+named!(pub opcode_0x0e<&[u8], Opcode, CustomError<&[u8]>>,
+       do_parse!(
+           a: snd_cmd >>
+           (Opcode::Sound(a))
+       )
+);
+
+named!(pub opcode_0x10<&[u8], Opcode, CustomError<&[u8]>>,
+       do_parse!(
+           a: formatted_text_cmd >>
+           (Opcode::DrawValText(a))
        )
 );
 
@@ -2123,7 +2457,7 @@ named!(pub opcode_0x15<&[u8], Opcode, CustomError<&[u8]>>,
 
 named!(pub opcode_0x16<&[u8], Opcode, CustomError<&[u8]>>,
        do_parse!(
-        a: scene_value >>
+        a: jump_to_scene_cmd >>
                (Opcode::JumpToScene(a))
        )
 );
@@ -2143,10 +2477,11 @@ named!(pub opcode_0x19<&[u8], Opcode, CustomError<&[u8]>>,
 );
 
 named!(pub opcode_0x1b<&[u8], Opcode, CustomError<&[u8]>>,
-       // TODO
-       // a: le_u32 >>
-       // (Opcode::Call(a))
-       value!(Opcode::Call(0))
+    do_parse!(
+       // TODO sometimes appears at EOF
+       a: le_u32 >>
+       (Opcode::Call(a))
+    )
 );
 
 named!(pub opcode_0x1c<&[u8], Opcode, CustomError<&[u8]>>,
@@ -2160,7 +2495,8 @@ named!(pub opcode_0x1d<&[u8], Opcode, CustomError<&[u8]>>,
        do_parse!(
            a: le_u8 >>
            b: scene_value >>
-           (Opcode::TableCall(a, b))
+           c: count!(le_u32, a as usize) >>
+           (Opcode::TableCall(a, b, c))
        )
 );
 
@@ -2168,7 +2504,8 @@ named!(pub opcode_0x1e<&[u8], Opcode, CustomError<&[u8]>>,
        do_parse!(
            a: le_u8 >>
            b: scene_value >>
-           (Opcode::TableJump(a, b))
+           c: count!(le_u32, a as usize) >>
+           (Opcode::TableJump(a, b, c))
        )
 );
 
@@ -2209,6 +2546,27 @@ named!(pub opcode_0x28<&[u8], Opcode, CustomError<&[u8]>>,
 
 named!(pub opcode_0x29<&[u8], Opcode, CustomError<&[u8]>>,
        value!(Opcode::Unknown0x29)
+);
+
+named!(pub opcode_0x2e<&[u8], Opcode, CustomError<&[u8]>>,
+       do_parse!(
+           a: scenario_menu_cmd >>
+               (Opcode::ScenarioMenu(a))
+       )
+);
+
+named!(pub opcode_0x2f<&[u8], Opcode, CustomError<&[u8]>>,
+       do_parse!(
+           a: scenario_menu_cmd >>
+               (Opcode::ScenarioMenu(a))
+       )
+);
+
+named!(pub opcode_0x31<&[u8], Opcode, CustomError<&[u8]>>,
+       do_parse!(
+           a: text_rank_cmd >>
+               (Opcode::TextRank(a))
+       )
 );
 
 named!(pub opcode_0x37<&[u8], Opcode, CustomError<&[u8]>>,
@@ -2374,8 +2732,7 @@ named!(pub opcode_0x51<&[u8], Opcode, CustomError<&[u8]>>,
 named!(pub opcode_0x56<&[u8], Opcode, CustomError<&[u8]>>,
        do_parse!(
            a: scene_value >>
-               b: scene_value >>
-               (Opcode::SetFlagRandom(a, b))
+               (Opcode::SetFlagRandom(a))
        )
 );
 
@@ -2387,10 +2744,38 @@ named!(pub opcode_0x57<&[u8], Opcode, CustomError<&[u8]>>,
        )
 );
 
+named!(pub opcode_0x58<&[u8], Opcode, CustomError<&[u8]>>,
+       do_parse!(
+           a: choice_cmd >>
+               (Opcode::Choice(a))
+       )
+);
+
+named!(pub opcode_0x59<&[u8], Opcode, CustomError<&[u8]>>,
+       do_parse!(
+           a: string_cmd >>
+               (Opcode::String(a))
+       )
+);
+
+named!(pub opcode_0x5c<&[u8], Opcode, CustomError<&[u8]>>,
+       do_parse!(
+           a: set_multi_cmd >>
+               (Opcode::SetMulti(a))
+       )
+);
+
 named!(pub opcode_0x60<&[u8], Opcode, CustomError<&[u8]>>,
        do_parse!(
            a: system_cmd >>
                (Opcode::System(a))
+       )
+);
+
+named!(pub opcode_0x61<&[u8], Opcode, CustomError<&[u8]>>,
+       do_parse!(
+           a: name_cmd >>
+               (Opcode::Name(a))
        )
 );
 
@@ -2416,6 +2801,13 @@ named!(pub opcode_0x68<&[u8], Opcode, CustomError<&[u8]>>,
        do_parse!(
            a: flash_grp_cmd >>
                (Opcode::Flash(a))
+       )
+);
+
+named!(pub opcode_0x6a<&[u8], Opcode, CustomError<&[u8]>>,
+       do_parse!(
+           a: multi_pdt_cmd >>
+               (Opcode::MultiPdt(a))
        )
 );
 
@@ -2502,7 +2894,7 @@ named!(pub opcode<&[u8], Opcode, CustomError<&[u8]>>,
        switch!(le_u8,
                0x01 => call!(opcode_0x01) |
                0x02 => call!(opcode_0x02) |
-               // 0x03 => value!(Opcode::Op0x03) |
+               0x03 => call!(opcode_0x03) |
                0x04 => call!(opcode_0x04) |
                // 0x05 => value!(Opcode::Op0x05) |
                // 0x06 => value!(Opcode::Op0x06) |
@@ -2510,7 +2902,7 @@ named!(pub opcode<&[u8], Opcode, CustomError<&[u8]>>,
                0x0b => call!(opcode_0x0b) |
                // 0x0c => value!(Opcode::Op0x0c) |
                0x0e => call!(opcode_0x0e) |
-               // 0x10 => value!(Opcode::Op0x10) |
+               0x10 => call!(opcode_0x10) |
                0x13 => call!(opcode_0x13) |
                0x15 => call!(opcode_0x15) |
                0x16 => call!(opcode_0x16) |
@@ -2533,10 +2925,10 @@ named!(pub opcode<&[u8], Opcode, CustomError<&[u8]>>,
                0x29 => call!(opcode_0x29) |
                // 0x2c => value!(Opcode::Op0x2c) |
                // 0x2d => value!(Opcode::Op0x2d) |
-               // 0x2e => value!(Opcode::Op0x2e) |
-               // 0x2f => value!(Opcode::Op0x2f) |
+               0x2e => call!(opcode_0x2e) |
+               0x2f => call!(opcode_0x2f) |
                // 0x30 => value!(Opcode::Op0x30) |
-               // 0x31 => value!(Opcode::Op0x31) |
+               0x31 => call!(opcode_0x31) |
                0x37 => call!(opcode_0x37) |
                0x39 => call!(opcode_0x39) |
                0x3b => call!(opcode_0x3b) |
@@ -2559,22 +2951,22 @@ named!(pub opcode<&[u8], Opcode, CustomError<&[u8]>>,
                0x51 => call!(opcode_0x51) |
                0x56 => call!(opcode_0x56) |
                0x57 => call!(opcode_0x57) |
-               // 0x58 => value!(Opcode::Op0x58) |
-               // 0x59 => value!(Opcode::Op0x59) |
+               0x58 => call!(opcode_0x58) |
+               0x59 => call!(opcode_0x59) |
                // 0x5b => value!(Opcode::Op0x5b) |
-               // 0x5c => value!(Opcode::Op0x5c) |
+               0x5c => call!(opcode_0x5c) |
                // 0x5d => value!(Opcode::Op0x5d) |
                // 0x5e => value!(Opcode::Op0x5e) |
                // 0x5f => value!(Opcode::Op0x5f) |
                0x60 => call!(opcode_0x60) |
-               // 0x61 => value!(Opcode::Op0x61) |
+               0x61 => call!(opcode_0x61) |
                // 0x63 => value!(Opcode::Op0x63) |
                0x64 => call!(opcode_0x64) |
                0x64 => call!(opcode_0x65) |
                0x67 => call!(opcode_0x67) |
                0x68 => call!(opcode_0x68) |
                // 0x69 => value!(Opcode::Op0x69) |
-               // 0x6a => value!(Opcode::Op0x6a) |
+               0x6a => call!(opcode_0x6a) |
                // 0x66 => value!(Opcode::Op0x66) |
                0x6c => call!(opcode_0x6c) |
                0x6d => call!(opcode_0x6d) |
@@ -2597,11 +2989,15 @@ named!(pub avg32_scene<&[u8], AVG32Scene, CustomError<&[u8]>>,
        do_parse!(
            header: header >>
                opcodes: dbg_dmp!(many1!(opcode)) >>
-               // dbg_dmp!(tag!("\0")) >>
-               // eof!() >>
+               dbg_dmp!(tag!("\0")) >>
+               eof!() >>
                (AVG32Scene {
                    header: header,
                    opcodes: opcodes
                })
        )
+);
+
+named!(pub opcodes<&[u8], Vec<Opcode>, CustomError<&[u8]>>,
+               dbg_dmp!(many1!(opcode))
 );

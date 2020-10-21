@@ -31,6 +31,17 @@ pub fn load_bytes(bytes: &[u8]) -> Result<AVG32Scene, &'static str> {
     res
 }
 
+pub fn load_ops(bytes: &[u8]) -> Result<Vec<parser::Opcode>, &'static str> {
+    let res = match parser::opcodes(bytes) {
+        Ok((_, parsed)) => Ok(parsed),
+        Err(_) => Err("Not a valid AVG32 scene"),
+    };
+
+    print_trace!();
+
+    res
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
