@@ -21,8 +21,8 @@ fn readall() -> Result<()> {
 }
 
 fn main() -> Result<()> {
-    // readall()?;
-    println!("{:x?}", avg32::load(&"SEEN/SEEN020.TXT"));
+    readall()?;
+    println!("{:x?}", avg32::load(&"SEEN/SEEN030.TXT"));
 
     Ok(())
 }

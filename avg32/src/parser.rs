@@ -381,6 +381,7 @@ pub enum GrpCmd {
     LoadEffect2(GrpEffect), // 0x04
     Load3(SceneText, Val), // 0x05
     LoadEffect3(GrpEffect), // 0x06
+    Unknown1, // 0x08
     LoadToBuf(SceneText, Val), // 0x09
     LoadToBuf2(SceneText, Val), // 0x10
     LoadCaching(SceneText), // 0x11
@@ -543,6 +544,7 @@ named!(pub grp_cmd<&[u8], GrpCmd, CustomError<&[u8]>>,
                    a: grp_effect >>
                    (GrpCmd::LoadEffect3(a))
                ) |
+               0x08 => value!(GrpCmd::Unknown1) |
                0x09 => do_parse!(
                    a: scene_text >>
                    b: scene_value >>
@@ -611,6 +613,7 @@ pub enum SndCmd {
     BgmFadeOut(Val), // 0x10
     BgmStop, // 0x11
     BgmRewind, // 0x12
+    BgmUnknown1, // 0x16
     KoePlayWait(Val), // 0x20
     KoePlay(Val), // 0x21
     KoePlay2(Val, Val), // 0x22
@@ -669,6 +672,7 @@ named!(pub snd_cmd<&[u8], SndCmd, CustomError<&[u8]>>,
                ) |
                0x11 => value!(SndCmd::BgmStop) |
                0x12 => value!(SndCmd::BgmRewind) |
+               0x16 => value!(SndCmd::BgmUnknown1) |
                0x20 => do_parse!(
                    a: scene_value >>
                    (SndCmd::KoePlayWait(a))
