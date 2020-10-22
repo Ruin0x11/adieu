@@ -181,13 +181,25 @@ named!(pub scene_pos<&[u8], Pos, CustomError<&[u8]>>,
        map!(le_u32, Pos::from)
 );
 
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy)]
+pub enum ValType {
+    Const,
+    Var
+}
+
 /// Literal value or variable index
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy)]
-pub struct Val(pub u32);
+pub struct Val(pub u32, pub ValType);
 
 pub fn scene_value(input: &[u8]) -> ParseResult<Val> {
     let num = input[0];
     let len = ((num >> 4) & 7) as usize;
+    let is_var = num & 0x80 == 0x80;
+    let kind = if is_var {
+        ValType::Var
+    } else {
+        ValType::Const
+    };
     let mut ret: u32 = 0;
 
     for i in (0..len-1).rev() {
@@ -198,7 +210,7 @@ pub fn scene_value(input: &[u8]) -> ParseResult<Val> {
     ret <<= 4;
     ret |= (num & 0x0f) as u32;
 
-    Ok((&input[len..], Val(ret)))
+    Ok((&input[len..], Val(ret, kind)))
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
@@ -806,10 +818,10 @@ pub enum Ret {
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub enum Condition {
-    IncDepth, // 0x26
-    DecDepth, // 0x27
-    And, // 0x28
-    Or, // 0x29
+    And, // 0x26
+    Or, // 0x27
+    IncDepth, // 0x28
+    DecDepth, // 0x29
     BitNotEq(Val, Val), // 0x36
     BitEq(Val, Val), // 0x37
     NotEq(Val, Val), // 0x38
@@ -3038,11 +3050,13 @@ mod tests {
 
     #[test]
     fn parse_value() {
-        assert_eq!(Val(0x00), scene_value(&[0x10]).unwrap().1);
-        assert_eq!(Val(0x0F), scene_value(&[0x1F]).unwrap().1);
-        assert_eq!(Val(0x800), scene_value(&[0x20, 0x80]).unwrap().1);
-        assert_eq!(Val(0x40804), scene_value(&[0x34, 0x80, 0x40]).unwrap().1);
-        assert_eq!(Val(0xFFFFF), scene_value(&[0x3F, 0xFF, 0xFF]).unwrap().1);
-        assert_eq!(Val(0xFFFFFFF), scene_value(&[0x4F, 0xFF, 0xFF, 0xFF]).unwrap().1);
+        assert_eq!(Val(0x00, ValType::Const), scene_value(&[0x10]).unwrap().1);
+        assert_eq!(Val(0x0F, ValType::Const), scene_value(&[0x1F]).unwrap().1);
+        assert_eq!(Val(0x01, ValType::Var), scene_value(&[0x91]).unwrap().1);
+        assert_eq!(Val(0x800, ValType::Const), scene_value(&[0x20, 0x80]).unwrap().1);
+        assert_eq!(Val(0x40804, ValType::Const), scene_value(&[0x34, 0x80, 0x40]).unwrap().1);
+        assert_eq!(Val(0xFFFFF, ValType::Const), scene_value(&[0x3F, 0xFF, 0xFF]).unwrap().1);
+        assert_eq!(Val(0x0A7D9F8, ValType::Const), scene_value(&[0x48, 0x9F, 0x7D, 0x0A]).unwrap().1);
+        assert_eq!(Val(0xFFFFFFF, ValType::Const), scene_value(&[0x4F, 0xFF, 0xFF, 0xFF]).unwrap().1);
     }
 }

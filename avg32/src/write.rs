@@ -92,7 +92,7 @@ impl<T: Writeable> Writeable for Vec<T> {
 
 impl Writeable for Header {
     fn byte_size(&self) -> usize {
-        "TPC32".byte_size()
+        b"TPC32".len()
             + self.unk1.byte_size()
             + mem::size_of::<u32>()
             + self.counter_start.byte_size()
@@ -105,7 +105,7 @@ impl Writeable for Header {
     }
 
     fn write<W: Write>(&self, writer: &mut W) -> Result<(), io::Error> {
-        ("TPC32").write(writer)?;
+        writer.write_all(b"TPC32")?;
         self.unk1.write(writer)?;
         (self.labels.len() as u32).write(writer)?;
         self.counter_start.write(writer)?;
@@ -187,8 +187,9 @@ impl Writeable for Val {
         match self.0 {
             0x00..=0x0F => 0,
             0x10..=0xFFF => 1,
-            0x1000..=0xFFFFFF => 2,
-            0x100000..=0xFFFFFFFF => 3
+            0x1000..=0xFFFFF => 2,
+            0x100000..=0xFFFFFFF => 3,
+            0x10000000..=0xFFFFFFFF => 4
         }
     }
 
@@ -196,7 +197,12 @@ impl Writeable for Val {
         let len = self.byte_size() as u8;
         let mut v = self.0;
 
-        let len_byte = ((len + 1) << 4) | (v as u8) & 0x0F;
+        let mut len_byte = ((len + 1) << 4) | (v as u8) & 0x0F;
+
+        if let ValType::Var = self.1 {
+            len_byte |= 0x80;
+        }
+
         v >>= 4;
         let mut bytes = vec![len_byte];
 
@@ -323,10 +329,10 @@ impl Writeable for Condition {
 
     fn write<W: Write>(&self, writer: &mut W) -> Result<(), io::Error> {
         match self {
-            Condition::IncDepth => (0x26u8).write(writer),
-            Condition::DecDepth => (0x27u8).write(writer),
-            Condition::And => (0x28u8).write(writer),
-            Condition::Or => (0x29u8).write(writer),
+            Condition::And => (0x26u8).write(writer),
+            Condition::Or => (0x27u8).write(writer),
+            Condition::IncDepth => (0x28u8).write(writer),
+            Condition::DecDepth => (0x29u8).write(writer),
             Condition::BitNotEq(a, b) => {
                 (0x36u8).write(writer)?;
                 a.write(writer)?;
@@ -1805,7 +1811,7 @@ impl Writeable for FlashGrpCmd {
                 b.write(writer)
             },
             FlashGrpCmd::FlashScreen(r, g, b, time, count) => {
-                (0x01u8).write(writer)?;
+                (0x10u8).write(writer)?;
                 r.write(writer)?;
                 g.write(writer)?;
                 b.write(writer)?;
@@ -1830,8 +1836,8 @@ impl Writeable for MultiPdtEntry {
 impl Writeable for MultiPdtCmd {
     fn byte_size(&self) -> usize {
         match self {
-            MultiPdtCmd::Slideshow(pos, wait, entries) => 1 + pos.byte_size() + wait.byte_size() + entries.byte_size(),
-            MultiPdtCmd::SlideshowLoop(pos, wait, entries) => 1 + pos.byte_size() + wait.byte_size() + entries.byte_size(),
+            MultiPdtCmd::Slideshow(pos, wait, entries) => 1 + mem::size_of::<u8>() + pos.byte_size() + wait.byte_size() + entries.byte_size(),
+            MultiPdtCmd::SlideshowLoop(pos, wait, entries) => 1 + mem::size_of::<u8>() + pos.byte_size() + wait.byte_size() + entries.byte_size(),
             MultiPdtCmd::StopSlideshowLoop => 1,
             MultiPdtCmd::Scroll(poscmd, pos, wait, pixel, entries) => 1 + poscmd.byte_size() + mem::size_of::<u8>() + pos.byte_size() + wait.byte_size() + pixel.byte_size() + entries.byte_size(),
             MultiPdtCmd::Scroll2(poscmd, pos, wait, pixel, entries) => 1 + poscmd.byte_size() + mem::size_of::<u8>() + pos.byte_size() + wait.byte_size() + pixel.byte_size() + entries.byte_size(),
@@ -1843,12 +1849,14 @@ impl Writeable for MultiPdtCmd {
         match self {
             MultiPdtCmd::Slideshow(pos, wait, entries) => {
                 (0x03u8).write(writer)?;
+                (entries.len() as u8).write(writer)?;
                 pos.write(writer)?;
                 wait.write(writer)?;
                 entries.write(writer)
             },
             MultiPdtCmd::SlideshowLoop(pos, wait, entries) => {
                 (0x04u8).write(writer)?;
+                (entries.len() as u8).write(writer)?;
                 pos.write(writer)?;
                 wait.write(writer)?;
                 entries.write(writer)
@@ -3022,6 +3030,7 @@ mod tests {
         let test = |bytes: &[u8]| {
             let mut writer = Vec::new();
             let val = parser::scene_value(bytes).unwrap().1;
+            println!("{:?}", val);
 
             val.write(&mut writer).unwrap();
 
@@ -3030,26 +3039,37 @@ mod tests {
 
         test(&[0x10]);
         test(&[0x1F]);
+        test(&[0x91]);
         test(&[0x20, 0x80]);
         test(&[0x3F, 0x80, 0x40]);
         test(&[0x3F, 0xFF, 0xFF]);
+        test(&[0x48, 0x9F, 0x7D, 0x0A]);
         test(&[0x4F, 0xFF, 0xFF, 0xFF]);
     }
 
     #[test]
     fn test_roundtrip_scene() {
-        let bytes = include_bytes!("../../SEEN/SEEN303.TXT");
-        let mut out = Vec::new();
-        let scene = parser::avg32_scene(bytes).unwrap().1;
+        use std::fs;
+        for entry in fs::read_dir("../SEEN").unwrap() {
+            let entry = entry.unwrap();
+            let path = entry.path();
+            println!("{:?}", path);
 
-        scene.write(&mut out).unwrap();
+            let metadata = fs::metadata(&path).unwrap();
+            if metadata.is_file() {
+                let mut out = Vec::new();
+                let bytes = fs::read(&path.to_str().unwrap()).unwrap();
+                let scene = parser::avg32_scene(&bytes).unwrap().1;
 
-        assert_eq!(&bytes[..], &out);
+                scene.write(&mut out).unwrap();
+
+                assert_eq!(&bytes[..], &out);
+            }
+        }
     }
 
     #[test]
     fn test_string_size() {
-        let s = "あいうえお";
-        assert_eq!(11, s.byte_size());
+        assert_eq!(11, "あいうえお".byte_size());
     }
 }
