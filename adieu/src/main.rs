@@ -10,10 +10,7 @@ extern crate anyhow;
 extern crate env_logger;
 
 #[cfg(test)]
-#[macro_use] extern crate pretty_assertions;
-
-#[cfg(test)]
-use pretty_assertions::{assert_eq, assert_ne};
+extern crate pretty_assertions;
 
 mod disasm;
 
@@ -39,9 +36,9 @@ fn readall() -> Result<()> {
 fn main() -> Result<()> {
     env_logger::init();
 
-    readall()?;
+    // readall()?;
     let scene = avg32::load(&"SEEN/SEEN020.TXT").unwrap();
-    // println!("{}", disasm::disassemble(&scene)?);
+    println!("{}", disasm::disassemble(&scene)?);
 
     Ok(())
 }

@@ -174,7 +174,7 @@ impl Writeable for Pos {
     }
 
     fn write<W: Write>(&self, writer: &mut W) -> Result<(), io::Error> {
-        if let Pos::Byte(pos) = *self {
+        if let Pos::Offset(pos) = *self {
             pos.write(writer)
         } else {
             return Err(io::Error::new(io::ErrorKind::Other, "Cannot write uncompiled label"));

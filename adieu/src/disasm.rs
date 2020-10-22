@@ -3,7 +3,7 @@ use avg32::write::Writeable;
 use std::collections::HashMap;
 use anyhow::{anyhow, Result};
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
 enum LabelKind {
     Condition,
     Call,
@@ -12,7 +12,7 @@ enum LabelKind {
     TableJump,
 }
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
 struct LabelPos {
     kind: LabelKind,
     pos: Pos
@@ -25,6 +25,18 @@ impl LabelPos {
             pos: pos
         }
     }
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+struct Label {
+    name: String,
+    opcodes: Vec<Opcode>
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+struct LabelResolvedScene {
+    header: Header,
+    labels: Vec<Label>
 }
 
 fn extract_label(opcode: &Opcode) -> Option<Vec<LabelPos>> {
@@ -50,18 +62,6 @@ fn extract_label(opcode: &Opcode) -> Option<Vec<LabelPos>> {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
-struct Label {
-    name: String,
-    opcodes: Vec<Opcode>
-}
-
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
-struct LabelResolvedScene {
-    header: Header,
-    labels: Vec<Label>
-}
-
 fn extract_labels(opcodes: &[Opcode]) -> Vec<LabelPos> {
     opcodes.iter().map(extract_label).filter(|x| x.is_some()).map(|x| x.unwrap()).flatten().collect()
 }
@@ -78,7 +78,7 @@ fn resolve_labels(scene: &AVG32Scene) -> Result<LabelResolvedScene> {
     });
 
     for label in labels.into_iter() {
-        if let Pos::Byte(pos) = label.pos {
+        if let Pos::Offset(pos) = label.pos {
             if !positions.contains_key(&pos) {
                 positions.insert(pos, Label {
                     name: format!("{:?}_0x{:x?}", label.kind, pos).to_lowercase(),
@@ -127,21 +127,182 @@ fn resolve_labels(scene: &AVG32Scene) -> Result<LabelResolvedScene> {
         }
     }
 
+    let mut resolved_labels = Vec::new();
+    for offset in offsets.iter() {
+        resolved_labels.push(positions.get(offset).unwrap().clone());
+    }
+
+    for label in resolved_labels.iter_mut() {
+        convert_byte_to_label_positions(&mut label.opcodes, &positions);
+    }
+
     Ok(LabelResolvedScene {
         header: scene.header.clone(),
-        labels: positions.into_values().collect()
+        labels: resolved_labels
     })
 }
 
-pub fn disassemble(scene: &AVG32Scene) -> Result<String> {
-    let opts = serde_lexpr::print::Options::elisp();
+fn convert_byte_to_label_positions(opcodes: &mut [Opcode], positions: &HashMap<u32, Label>) {
+    for opcode in opcodes.iter_mut() {
+        match opcode {
+            Opcode::Condition(_, ref mut pos) => {
+                if let Pos::Offset(b) = pos {
+                    let label = positions.get(b).unwrap();
+                    *pos = Pos::Label(label.name.clone());
+                } else {
+                    unreachable!()
+                }
+            },
+            Opcode::Call(ref mut pos) => {
+                if let Pos::Offset(b) = pos {
+                    let label = positions.get(b).unwrap();
+                    *pos = Pos::Label(label.name.clone());
+                } else {
+                    unreachable!()
+                }
+            },
+            Opcode::Jump(ref mut pos) => {
+                if let Pos::Offset(b) = pos {
+                    let label = positions.get(b).unwrap();
+                    *pos = Pos::Label(label.name.clone());
+                } else {
+                    unreachable!()
+                }
+            },
+            Opcode::TableCall(_, poss) => {
+                for pos in poss.iter_mut() {
+                    if let Pos::Offset(b) = pos {
+                        let label = positions.get(b).unwrap();
+                        *pos = Pos::Label(label.name.clone());
+                    } else {
+                        unreachable!()
+                    }
+                }
+            },
+            Opcode::TableJump(_, poss) => {
+                for pos in poss.iter_mut() {
+                    if let Pos::Offset(b) = pos {
+                        let label = positions.get(b).unwrap();
+                        *pos = Pos::Label(label.name.clone());
+                    } else {
+                        unreachable!()
+                    }
+                }
+            },
+            _ => ()
+        }
+    }
+}
 
+fn compile_labels(resolved: &LabelResolvedScene) -> Result<AVG32Scene> {
+    let mut opcodes = Vec::new();
+    let mut positions: HashMap<String, u32> = HashMap::new();
+    let mut cur_pos = 0;
+
+    for label in resolved.labels.iter() {
+        positions.insert(label.name.clone(), cur_pos);
+        for opcode in label.opcodes.iter() {
+            opcodes.push(opcode.clone());
+            cur_pos += opcode.byte_size() as u32;
+        }
+    }
+
+    convert_label_to_byte_positions(&mut opcodes, &positions);
+
+    Ok(AVG32Scene {
+        header: resolved.header.clone(),
+        opcodes: opcodes
+    })
+}
+
+fn convert_label_to_byte_positions(opcodes: &mut [Opcode], positions: &HashMap<String, u32>) {
+    for opcode in opcodes.iter_mut() {
+        match opcode {
+            Opcode::Condition(_, ref mut pos) => {
+                if let Pos::Label(name) = pos {
+                    let b = positions.get(name).unwrap();
+                    *pos = Pos::Offset(*b);
+                } else {
+                    unreachable!()
+                }
+            },
+            Opcode::Call(ref mut pos) => {
+                if let Pos::Label(name) = pos {
+                    let b = positions.get(name).unwrap();
+                    *pos = Pos::Offset(*b);
+                } else {
+                    unreachable!()
+                }
+            },
+            Opcode::Jump(ref mut pos) => {
+                if let Pos::Label(name) = pos {
+                    let b = positions.get(name).unwrap();
+                    *pos = Pos::Offset(*b);
+                } else {
+                    unreachable!()
+                }
+            },
+            Opcode::TableCall(_, poss) => {
+                for pos in poss.iter_mut() {
+                    if let Pos::Label(name) = pos {
+                        let b = positions.get(name).unwrap();
+                        *pos = Pos::Offset(*b);
+                    } else {
+                        unreachable!()
+                    }
+                }
+            },
+            Opcode::TableJump(_, poss) => {
+                for pos in poss.iter_mut() {
+                    if let Pos::Label(name) = pos {
+                        let b = positions.get(name).unwrap();
+                        *pos = Pos::Offset(*b);
+                    } else {
+                        unreachable!()
+                    }
+                }
+            },
+            _ => ()
+        }
+    }
+}
+
+pub fn disassemble(scene: &AVG32Scene) -> Result<String> {
     let resolved = resolve_labels(&scene)?;
 
-    let sexp = serde_lexpr::to_string_custom(scene, opts).unwrap();
+    let sexp = serde_lexpr::to_string(&resolved).unwrap();
     Ok(sexp)
 }
 
-pub fn assemble(sexp: &str) -> AVG32Scene {
-    serde_lexpr::from_str(sexp).unwrap()
+pub fn assemble(sexp: &str) -> Result<AVG32Scene> {
+    let resolved = serde_lexpr::from_str(sexp).unwrap();
+
+    let scene = compile_labels(&resolved)?;
+
+    Ok(scene)
+}
+
+#[cfg(test)]
+mod tests {
+    use avg32;
+    use super::*;
+    use pretty_assertions::assert_eq;
+
+    #[test]
+    fn test_roundtrip_scene() {
+        use std::fs;
+        for entry in fs::read_dir("../SEEN").unwrap() {
+            let entry = entry.unwrap();
+            let path = entry.path();
+            println!("{:?}", path);
+
+            let metadata = fs::metadata(&path).unwrap();
+            if metadata.is_file() {
+                let scene = avg32::load(&path.to_str().unwrap()).unwrap();
+
+                let disasm = disassemble(&scene).unwrap();
+                assert_eq!(scene, assemble(&disasm).unwrap());
+            }
+        }
+    }
 }
