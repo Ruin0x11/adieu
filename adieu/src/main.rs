@@ -6,6 +6,8 @@ extern crate serde;
 extern crate lexpr;
 extern crate serde_lexpr;
 extern crate anyhow;
+#[macro_use] extern crate log;
+extern crate env_logger;
 
 #[cfg(test)]
 #[macro_use] extern crate pretty_assertions;
@@ -26,8 +28,8 @@ fn readall() -> Result<()> {
 
         let metadata = fs::metadata(&path)?;
         if metadata.is_file() {
-            //println!("{:?}", avg32::load(&path.to_str().unwrap()));
-            avg32::load(&path.to_str().unwrap()).unwrap();
+            let scene = avg32::load(&path.to_str().unwrap()).unwrap();
+            disasm::disassemble(&scene)?;
         }
     }
 
@@ -35,8 +37,11 @@ fn readall() -> Result<()> {
 }
 
 fn main() -> Result<()> {
+    env_logger::init();
+
+    readall()?;
     let scene = avg32::load(&"SEEN/SEEN020.TXT").unwrap();
-    println!("{}", disasm::disassemble(&scene));
+    // println!("{}", disasm::disassemble(&scene)?);
 
     Ok(())
 }

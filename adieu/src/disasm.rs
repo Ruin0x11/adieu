@@ -1,6 +1,7 @@
 use avg32::parser::{AVG32Scene, Header, Pos, Opcode};
 use avg32::write::Writeable;
 use std::collections::HashMap;
+use anyhow::{anyhow, Result};
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum LabelKind {
@@ -65,7 +66,7 @@ fn extract_labels(opcodes: &[Opcode]) -> Vec<LabelPos> {
     opcodes.iter().map(extract_label).filter(|x| x.is_some()).map(|x| x.unwrap()).flatten().collect()
 }
 
-fn resolve_labels(scene: &AVG32Scene) -> LabelResolvedScene {
+fn resolve_labels(scene: &AVG32Scene) -> Result<LabelResolvedScene> {
     let mut labels = extract_labels(&scene.opcodes);
     labels.sort();
 
@@ -85,7 +86,7 @@ fn resolve_labels(scene: &AVG32Scene) -> LabelResolvedScene {
                 });
             }
         } else {
-            unreachable!();
+            return Err(anyhow!("Labels were already resolved"));
         }
     }
 
@@ -103,41 +104,42 @@ fn resolve_labels(scene: &AVG32Scene) -> LabelResolvedScene {
         match next_offset {
             Some(noff) => {
                 if cur_pos < *noff {
-                    println!("{:04x?}-{:04x}: 0x{:04x?} (0x{:04x?}) + 0x{:02x?} - {:x?}", offset.unwrap() + start_pos, *next_offset.unwrap_or(&0) + start_pos, cur_pos + start_pos, cur_pos, opcode.byte_size(), opcode);
+                    debug!("{:04x?}-{:04x}: 0x{:04x?} (0x{:04x?}) + 0x{:02x?} - {:x?}", offset.unwrap() + start_pos, *next_offset.unwrap_or(&0) + start_pos, cur_pos + start_pos, cur_pos, opcode.byte_size(), opcode);
                     cur_label.opcodes.push(opcode.clone());
                     cur_pos += opcode.byte_size() as u32;
                 } else if cur_pos == *noff {
                     cur_label = positions.get_mut(noff).unwrap();
-                    println!("    {}:", cur_label.name);
-                    println!("{:04x?}-{:04x}: 0x{:04x?} (0x{:04x?}) + 0x{:02x?} - {:x?}", offset.unwrap() + start_pos, *next_offset.unwrap_or(&0) + start_pos, cur_pos + start_pos, cur_pos, opcode.byte_size(), opcode);
+                    debug!("    {}:", cur_label.name);
+                    debug!("{:04x?}-{:04x}: 0x{:04x?} (0x{:04x?}) + 0x{:02x?} - {:x?}", offset.unwrap() + start_pos, *next_offset.unwrap_or(&0) + start_pos, cur_pos + start_pos, cur_pos, opcode.byte_size(), opcode);
                     cur_label.opcodes.push(opcode.clone());
                     offset = next_offset;
                     next_offset = offset_iter.next();
                     cur_pos += opcode.byte_size() as u32;
                 } else {
-                    panic!("Misaligned opcode at pos 0x{:04x?}: offset 0x{:04x?} opcode {:x?}", cur_pos, offset, opcode);
+                    return Err(anyhow!("Misaligned opcode at pos 0x{:04x?}: offset 0x{:04x?} opcode {:x?}", cur_pos, offset, opcode));
                 }
             },
             None => {
-                println!("{:04x?}-{:04x}: 0x{:04x?} (0x{:04x?}) + 0x{:02x?} - {:x?}", offset.unwrap() + start_pos, *next_offset.unwrap_or(&0) + start_pos, cur_pos + start_pos, cur_pos, opcode.byte_size(), opcode);
+                debug!("{:04x?}-{:04x}: 0x{:04x?} (0x{:04x?}) + 0x{:02x?} - {:x?}", offset.unwrap() + start_pos, *next_offset.unwrap_or(&0) + start_pos, cur_pos + start_pos, cur_pos, opcode.byte_size(), opcode);
                 cur_label.opcodes.push(opcode.clone());
                 cur_pos += opcode.byte_size() as u32;
             }
         }
     }
 
-    LabelResolvedScene {
+    Ok(LabelResolvedScene {
         header: scene.header.clone(),
         labels: positions.into_values().collect()
-    }
+    })
 }
 
-pub fn disassemble(scene: &AVG32Scene) -> String {
+pub fn disassemble(scene: &AVG32Scene) -> Result<String> {
     let opts = serde_lexpr::print::Options::elisp();
 
-    println!("{:#02x?}", resolve_labels(&scene));
+    let resolved = resolve_labels(&scene)?;
 
-    serde_lexpr::to_string_custom(scene, opts).unwrap()
+    let sexp = serde_lexpr::to_string_custom(scene, opts).unwrap();
+    Ok(sexp)
 }
 
 pub fn assemble(sexp: &str) -> AVG32Scene {

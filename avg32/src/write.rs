@@ -632,10 +632,10 @@ impl Writeable for GrpEffect {
 impl Writeable for GrpCompositeChild {
     fn byte_size(&self) -> usize {
         let method_size = match self.method {
-            GrpCompositeMethod::Corner => 1,
-            GrpCompositeMethod::Copy(val) => 1 + val.byte_size(),
-            GrpCompositeMethod::Move1(srcx1, srcy1, srcx2, srcy2, dstx1, dstx2) => 1 + srcx1.byte_size() + srcy1.byte_size() + srcx2.byte_size() + srcy2.byte_size() + dstx1.byte_size() + dstx2.byte_size(),
-            GrpCompositeMethod::Move2(srcx1, srcy1, srcx2, srcy2, dstx1, dstx2, arg) => 1 + srcx1.byte_size() + srcy1.byte_size() + srcx2.byte_size() + srcy2.byte_size() + dstx1.byte_size() + dstx2.byte_size() + arg.byte_size(),
+            GrpCompositeMethod::Corner => 0,
+            GrpCompositeMethod::Copy(val) => val.byte_size(),
+            GrpCompositeMethod::Move1(srcx1, srcy1, srcx2, srcy2, dstx1, dstx2) => srcx1.byte_size() + srcy1.byte_size() + srcx2.byte_size() + srcy2.byte_size() + dstx1.byte_size() + dstx2.byte_size(),
+            GrpCompositeMethod::Move2(srcx1, srcy1, srcx2, srcy2, dstx1, dstx2, arg) => srcx1.byte_size() + srcy1.byte_size() + srcx2.byte_size() + srcy2.byte_size() + dstx1.byte_size() + dstx2.byte_size() + arg.byte_size(),
         };
         1 + self.file.byte_size()
             + method_size
