@@ -185,16 +185,16 @@ impl Writeable for Pos {
 impl Writeable for Val {
     fn byte_size(&self) -> usize {
         match self.0 {
-            0x00..=0x0F => 0,
-            0x10..=0xFFF => 1,
-            0x1000..=0xFFFFF => 2,
-            0x100000..=0xFFFFFFF => 3,
-            0x10000000..=0xFFFFFFFF => 4
+            0x00..=0x0F => 1,
+            0x10..=0xFFF => 2,
+            0x1000..=0xFFFFF => 3,
+            0x100000..=0xFFFFFFF => 4,
+            0x10000000..=0xFFFFFFFF => 5
         }
     }
 
     fn write<W: Write>(&self, writer: &mut W) -> Result<(), io::Error> {
-        let len = self.byte_size() as u8;
+        let len = (self.byte_size() - 1) as u8;
         let mut v = self.0;
 
         let mut len_byte = ((len + 1) << 4) | (v as u8) & 0x0F;
@@ -456,7 +456,7 @@ impl Writeable for SceneFormattedTextEntry {
         match self {
             SceneFormattedTextEntry::Command(idx) => 1 + idx.byte_size(),
             SceneFormattedTextEntry::Unknown => 1,
-            SceneFormattedTextEntry::Condition(conds) => conds.byte_size(),
+            SceneFormattedTextEntry::Condition(conds) => 1 + conds.byte_size(),
             SceneFormattedTextEntry::TextPointer(idx) => 1 + idx.byte_size(),
             SceneFormattedTextEntry::TextHankaku(text) => 1 + text.byte_size(),
             SceneFormattedTextEntry::TextZenkaku(text) => 1 + text.byte_size(),
@@ -3071,5 +3071,13 @@ mod tests {
     #[test]
     fn test_string_size() {
         assert_eq!(11, "あいうえお".byte_size());
+    }
+
+    #[test]
+    fn test_val_size() {
+        assert_eq!(1, Val(0x00, ValType::Const).byte_size());
+        assert_eq!(1, Val(0x0A, ValType::Const).byte_size());
+        assert_eq!(2, Val(0x10A, ValType::Const).byte_size());
+        assert_eq!(3, Val(0x1010A, ValType::Const).byte_size());
     }
 }

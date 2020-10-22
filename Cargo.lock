@@ -10,6 +10,7 @@ dependencies = [
  "pretty_assertions",
  "serde",
  "serde-lexpr",
+ "serde_derive",
 ]
 
 [[package]]

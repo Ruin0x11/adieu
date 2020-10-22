@@ -7,6 +7,7 @@ edition = "2018"
 [dependencies]
 avg32 = { path = "../avg32" }
 serde = "1.0.117"
+serde_derive = "1.0.117"
 anyhow = "1.0"
 lexpr = "0.2.5"
 serde-lexpr = "0.1.1"

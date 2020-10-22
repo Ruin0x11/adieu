@@ -3,7 +3,7 @@ use nom::IResult;
 use nom::number::streaming::{le_u8, le_u32};
 use encoding_rs::SHIFT_JIS;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum CustomError<I> {
   MyError(String),
   Nom(I, ErrorKind),
@@ -28,13 +28,13 @@ fn sys_version_geq(min_ver: u32) -> bool {
     SYS_VERSION >= min_ver
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct AVG32Scene {
     pub header: Header,
     pub opcodes: Vec<Opcode>
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct Header {
     pub unk1: Vec<u8>,
     pub labels: Vec<u32>,
@@ -98,7 +98,7 @@ fn menu_strings<'a, 'b>(input: &'a [u8], menus: &'b [Menu]) -> ParseResult<'a, V
     nom::multi::count(c_string, str_count)(input)
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct Menu {
     pub id: u8,
     pub unk1: u8,
@@ -122,7 +122,7 @@ named!(pub menu<&[u8], Menu, CustomError<&[u8]>>,
     )
 );
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct Submenu {
     pub id: u8,
     pub unk1: u8,
@@ -146,7 +146,7 @@ named!(pub submenu<&[u8], Submenu, CustomError<&[u8]>>,
     )
 );
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct Flag {
     pub unk1: u8,
     pub flags: Vec<u32>
@@ -165,7 +165,7 @@ named!(pub flag<&[u8], Flag, CustomError<&[u8]>>,
 );
 
 /// Byte position (jump, if, etc.)
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
 pub enum Pos {
     Byte(u32),
     Label(String)
@@ -181,14 +181,14 @@ named!(pub scene_pos<&[u8], Pos, CustomError<&[u8]>>,
        map!(le_u32, Pos::from)
 );
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 pub enum ValType {
     Const,
     Var
 }
 
 /// Literal value or variable index
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 pub struct Val(pub u32, pub ValType);
 
 pub fn scene_value(input: &[u8]) -> ParseResult<Val> {
@@ -213,7 +213,7 @@ pub fn scene_value(input: &[u8]) -> ParseResult<Val> {
     Ok((&input[len..], Val(ret, kind)))
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub enum SceneText {
     Pointer(Val),
     Literal(String)
@@ -229,7 +229,7 @@ fn scene_text(input: &[u8]) -> ParseResult<SceneText> {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub enum FormattedTextCmd {
     Integer(Val), // 0x01
     IntegerZeroPadded(Val, Val), // 0x02
@@ -248,7 +248,7 @@ named!(pub formatted_text_cmd<&[u8], FormattedTextCmd, CustomError<&[u8]>>,
     )
 );
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub enum SceneFormattedTextEntry {
     Command(FormattedTextCmd), // 0x10
     Unknown, // 0x12
@@ -269,7 +269,7 @@ named!(pub scene_formatted_text_entry<&[u8], SceneFormattedTextEntry, CustomErro
        )
 );
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct SceneFormattedText(pub Vec<SceneFormattedTextEntry>);
 
 named!(pub scene_formatted_text<&[u8], SceneFormattedText, CustomError<&[u8]>>,
@@ -283,7 +283,7 @@ named!(pub scene_formatted_text<&[u8], SceneFormattedText, CustomError<&[u8]>>,
 // Opcode data
 //
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub enum JumpToSceneCmd {
     Jump(Val), // 0x01
     Call(Val), // 0x02
@@ -296,7 +296,7 @@ named!(pub jump_to_scene_cmd<&[u8], JumpToSceneCmd, CustomError<&[u8]>>,
         )
 );
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub enum TextWinCmd {
     Hide, // 0x01
     HideEffect, // 0x02
@@ -315,7 +315,7 @@ named!(pub text_win_cmd<&[u8], TextWinCmd, CustomError<&[u8]>>,
     )
 );
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub enum FadeCmd {
     Fade(Val), // 0x01
     FadeTimed(Val, Val), // 0x02
@@ -362,7 +362,7 @@ named!(pub fade_cmd<&[u8], FadeCmd, CustomError<&[u8]>>,
     )
 );
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct GrpEffect {
     pub file: SceneText,
     pub sx1: Val,
@@ -421,7 +421,7 @@ named!(pub grp_effect<&[u8], GrpEffect, CustomError<&[u8]>>,
        )
 );
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub enum GrpCompositeMethod {
     Corner, // 0x01
     Copy(Val), // 0x02
@@ -429,7 +429,7 @@ pub enum GrpCompositeMethod {
     Move2(Val, Val, Val, Val, Val, Val, Val) // 0x04
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct GrpCompositeChild {
     pub file: SceneText,
     pub method: GrpCompositeMethod
@@ -484,7 +484,7 @@ fn grp_composite_child(input: &[u8]) -> ParseResult<GrpCompositeChild> {
     Ok((inp, child))
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct GrpComposite {
     pub base_file: SceneText,
     pub idx: Val,
@@ -505,7 +505,7 @@ named!(pub grp_composite<&[u8], GrpComposite, CustomError<&[u8]>>,
        )
 );
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct GrpCompositeIndexed {
     pub base_file: Val,
     pub idx: Val,
@@ -526,7 +526,7 @@ named!(pub grp_composite_indexed<&[u8], GrpCompositeIndexed, CustomError<&[u8]>>
        )
 );
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub enum GrpCmd {
     Load(SceneText, Val), // 0x01
     LoadEffect(GrpEffect), // 0x02
@@ -630,7 +630,7 @@ named!(pub grp_cmd<&[u8], GrpCmd, CustomError<&[u8]>>,
        )
 );
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub enum SndCmd {
     BgmLoop(SceneText), // 0x01
     BgmWait(SceneText), // 0x02
@@ -809,14 +809,14 @@ named!(pub snd_cmd<&[u8], SndCmd, CustomError<&[u8]>>,
        )
 );
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub enum Ret {
     Color(Val), // 0x20
     Choice, // 0x21
     DisabledChoice(Val) // 0x22
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub enum Condition {
     And, // 0x26
     Or, // 0x27
@@ -932,7 +932,7 @@ fn scene_conditions(input: &[u8]) -> ParseResult<Vec<Condition>> {
     Ok((inp, conditions))
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub enum ScreenShakeCmd {
     ScreenShake(Val), // 0x01
 }
@@ -946,7 +946,7 @@ named!(pub screen_shake_cmd<&[u8], ScreenShakeCmd, CustomError<&[u8]>>,
     )
 );
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub enum WaitCmd {
     Wait(Val), // 0x01
     WaitMouse(Val, Val), // 0x02
@@ -991,7 +991,7 @@ named!(pub wait_cmd<&[u8], WaitCmd, CustomError<&[u8]>>,
     )
 );
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub enum RetCmd {
     SameScene, // 0x01
     OtherScene, // 0x02
@@ -1008,7 +1008,7 @@ named!(pub ret_cmd<&[u8], RetCmd, CustomError<&[u8]>>,
     )
 );
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub enum ScenarioMenuCmd {
     SetBit(Val), // 0x01
     SetBit2(Val, Val) // 0x02
@@ -1021,7 +1021,7 @@ named!(pub scenario_menu_cmd<&[u8], ScenarioMenuCmd, CustomError<&[u8]>>,
     )
 );
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub enum TextRankCmd {
     Set(Val), // 0x01
     Clear, // 0x02
@@ -1034,19 +1034,19 @@ named!(pub text_rank_cmd<&[u8], TextRankCmd, CustomError<&[u8]>>,
     )
 );
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub enum Choice {
     Choice, // 0x22
     End // 0x23
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct ChoiceText {
     pub pad: Option<u8>,
     pub texts: Vec<SceneFormattedText>
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub enum ChoiceCmd {
     Choice(Val, u8, Option<ChoiceText>), // 0x01
     Choice2(Val, u8, Option<ChoiceText>), // 0x02
@@ -1089,7 +1089,7 @@ named!(pub choice_cmd<&[u8], ChoiceCmd, CustomError<&[u8]>>,
     )
 );
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub enum StringCmd {
     StrcpyLiteral(Val, SceneText), // 0x01
     Strlen(Val, Val), // 0x02
@@ -1114,7 +1114,7 @@ named!(pub string_cmd<&[u8], StringCmd, CustomError<&[u8]>>,
     )
 );
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub enum SetMultiCmd {
     Val(Val, Val, Val), // 0x01
     Bit(Val, Val, Val), // 0x02
@@ -1137,7 +1137,7 @@ named!(pub set_multi_cmd<&[u8], SetMultiCmd, CustomError<&[u8]>>,
        )
 );
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct BRGRectColor {
     pub srcx1: Val,
     pub srcy1: Val,
@@ -1172,7 +1172,7 @@ named!(pub brg_rect_color<&[u8], BRGRectColor, CustomError<&[u8]>>,
        )
 );
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct BRGRect {
     pub srcx1: Val,
     pub srcy1: Val,
@@ -1198,7 +1198,7 @@ named!(pub brg_rect<&[u8], BRGRect, CustomError<&[u8]>>,
        )
 );
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct BRGFadeOutColor {
     pub srcx1: Val,
     pub srcy1: Val,
@@ -1236,7 +1236,7 @@ named!(pub brg_fade_out_color<&[u8], BRGFadeOutColor, CustomError<&[u8]>>,
        )
 );
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct BRGStretchBlit {
     pub srcx1: Val,
     pub srcy1: Val,
@@ -1277,7 +1277,7 @@ named!(pub brg_stretch_blit<&[u8], BRGStretchBlit, CustomError<&[u8]>>,
        )
 );
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct BRGStretchBlitEffect {
     pub sx1: Val,
     pub sy1: Val,
@@ -1336,7 +1336,7 @@ named!(pub brg_stretch_blit_effect<&[u8], BRGStretchBlitEffect, CustomError<&[u8
        )
 );
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub enum BufferRegionGrpCmd {
     ClearRect(BRGRectColor), // 0x02
     DrawRectLine(BRGRectColor), // 0x04
@@ -1365,7 +1365,7 @@ named!(pub buffer_region_grp_cmd<&[u8], BufferRegionGrpCmd, CustomError<&[u8]>>,
        )
 );
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct BGCopySamePos {
     pub srcx1: Val,
     pub srcy1: Val,
@@ -1394,7 +1394,7 @@ named!(pub bg_copy_same_pos<&[u8], BGCopySamePos, CustomError<&[u8]>>,
        )
 );
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct BGCopyNewPos {
     pub srcx1: Val,
     pub srcy1: Val,
@@ -1457,7 +1457,7 @@ named!(pub bg_copy_new_pos_mask<&[u8], BGCopyNewPos, CustomError<&[u8]>>,
        )
 );
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct BGCopyColor {
     pub srcx1: Val,
     pub srcy1: Val,
@@ -1501,7 +1501,7 @@ named!(pub bg_copy_color<&[u8], BGCopyColor, CustomError<&[u8]>>,
        )
 );
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct BGSwap {
     pub srcx1: Val,
     pub srcy1: Val,
@@ -1536,7 +1536,7 @@ named!(pub bg_swap<&[u8], BGSwap, CustomError<&[u8]>>,
        )
 );
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct BGCopyWithMask {
     pub srcx1: Val,
     pub srcy1: Val,
@@ -1574,7 +1574,7 @@ named!(pub bg_copy_with_mask<&[u8], BGCopyWithMask, CustomError<&[u8]>>,
        )
 );
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct BGCopyWholeScreen {
     pub srcpdt: Val,
     pub dstpdt: Val,
@@ -1607,7 +1607,7 @@ named!(pub bg_copy_whole_screen_mask<&[u8], BGCopyWholeScreen, CustomError<&[u8]
        )
 );
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct BGDisplayStrings {
     pub n: Val,
     pub srcx1: Val,
@@ -1663,7 +1663,7 @@ named!(pub bg_display_strings<&[u8], BGDisplayStrings, CustomError<&[u8]>>,
        )
 );
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct BGDisplayStringsMask {
     pub n: Val,
     pub srcx1: Val,
@@ -1722,7 +1722,7 @@ named!(pub bg_display_strings_mask<&[u8], BGDisplayStringsMask, CustomError<&[u8
        )
 );
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct BGDisplayStringsColor {
     pub n: Val,
     pub srcx1: Val,
@@ -1787,7 +1787,7 @@ named!(pub bg_display_strings_color<&[u8], BGDisplayStringsColor, CustomError<&[
        )
 );
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub enum BufferGrpCmd {
     CopySamePos(BGCopySamePos), // 0x00
     CopyNewPos(BGCopyNewPos), // 0x01
@@ -1818,7 +1818,7 @@ named!(pub buffer_grp_cmd<&[u8], BufferGrpCmd, CustomError<&[u8]>>,
        )
 );
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub enum FlashGrpCmd {
     FillColor(Val, Val, Val, Val), // 0x01
     FlashScreen(Val, Val, Val, Val, Val), // 0x10
@@ -1844,7 +1844,7 @@ named!(pub flash_grp_cmd<&[u8], FlashGrpCmd, CustomError<&[u8]>>,
        )
 );
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct MultiPdtEntry {
     pub text: SceneText,
     pub data: Val
@@ -1861,7 +1861,7 @@ named!(pub multi_pdt_entry<&[u8], MultiPdtEntry, CustomError<&[u8]>>,
        )
 );
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub enum MultiPdtCmd {
     Slideshow(Val, Val, Vec<MultiPdtEntry>), // 0x03
     SlideshowLoop(Val, Val, Vec<MultiPdtEntry>), // 0x04
@@ -1918,7 +1918,7 @@ named!(pub multi_pdt_cmd<&[u8], MultiPdtCmd, CustomError<&[u8]>>,
                ))
 );
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub enum SystemCmd {
     LoadGame(Val), // 0x02
     SaveGame(Val), // 0x03
@@ -1947,7 +1947,7 @@ named!(pub system_cmd<&[u8], SystemCmd, CustomError<&[u8]>>,
        )
 );
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct NameInputItem {
     pub idx: Val,
     pub text: SceneFormattedText
@@ -1964,7 +1964,7 @@ named!(pub name_input_item<&[u8], NameInputItem, CustomError<&[u8]>>,
        )
 );
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub enum NameCmd {
     InputBox(Val, Val, Val, Val, Val, Val, Val, Val, Val, Val), // 0x01
     InputBoxFinish(Val), // 0x02
@@ -2050,7 +2050,7 @@ named!(pub name_cmd<&[u8], NameCmd, CustomError<&[u8]>>,
        )
 );
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub enum AreaBufferCmd {
     ReadCurArd(SceneText, SceneText), // 0x02
     Init, // 0x03
@@ -2102,7 +2102,7 @@ named!(pub area_buffer_cmd<&[u8], AreaBufferCmd, CustomError<&[u8]>>,
        )
 );
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub enum MouseCtrlCmd {
     WaitForClick, // 0x01
     SetPos(Val, Val, Val), // 0x02
@@ -2126,7 +2126,7 @@ named!(pub mouse_ctrl_cmd<&[u8], MouseCtrlCmd, CustomError<&[u8]>>,
        )
 );
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub enum VolumeCmd {
     GetBgmVolume(Val), // 0x01
     GetWavVolume(Val), // 0x02
@@ -2159,7 +2159,7 @@ named!(pub set_vol_cmd<&[u8], VolumeCmd, CustomError<&[u8]>>,
        )
 );
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub enum NovelModeCmd {
     SetEnabled(Val), // 0x01
     Unknown1(Val), // 0x02
@@ -2178,7 +2178,7 @@ named!(pub novel_mode_cmd<&[u8], NovelModeCmd, CustomError<&[u8]>>,
        )
 );
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub enum WindowVarCmd {
     GetBgFlagColor(Val, Val, Val, Val), // 0x01
     SetBgFlagColor(Val, Val, Val, Val), // 0x02
@@ -2215,7 +2215,7 @@ named!(pub window_var_cmd<&[u8], WindowVarCmd, CustomError<&[u8]>>,
        )
 );
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub enum MessageWinCmd {
     GetWindowMsgPos(Val, Val), // 0x01
     GetWindowComPos(Val, Val), // 0x02
@@ -2244,7 +2244,7 @@ named!(pub message_win_cmd<&[u8], MessageWinCmd, CustomError<&[u8]>>,
        )
 );
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub enum SystemVarCmd {
     GetMessageSize(Val, Val), // 0x01
     SetMessageSize(Val, Val), // 0x02
@@ -2331,7 +2331,7 @@ named!(pub system_var_cmd<&[u8], SystemVarCmd, CustomError<&[u8]>>,
        )
 );
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub enum PopupMenuCmd {
     GetMenuDisabled(Val), // 0x01
     SetMenuDisabled(Val), // 0x02
@@ -2348,7 +2348,7 @@ named!(pub popup_menu_cmd<&[u8], PopupMenuCmd, CustomError<&[u8]>>,
        )
 );
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub enum Opcode {
     WaitMouse, // 0x01
     Newline, // 0x02

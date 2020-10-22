@@ -1,5 +1,8 @@
+#![feature(map_into_keys_values)]
+
 extern crate avg32;
 extern crate serde;
+#[macro_use] extern crate serde_derive;
 extern crate lexpr;
 extern crate serde_lexpr;
 extern crate anyhow;
