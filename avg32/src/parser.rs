@@ -28,21 +28,46 @@ fn sys_version_geq(min_ver: u32) -> bool {
     SYS_VERSION >= min_ver
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct AVG32Scene {
-    header: Header,
-    opcodes: Vec<Opcode>
+    pub header: Header,
+    pub opcodes: Vec<Opcode>
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct Header {
-    label_count: u32,
-    labels: Vec<u32>,
-    counter_start: u32,
-    menu_count: u32,
-    menus: Vec<Menu>,
-    menu_strings: Vec<String>
+    pub unk1: Vec<u8>,
+    pub labels: Vec<u32>,
+    pub unk2: Vec<u8>,
+    pub counter_start: u32,
+    pub menus: Vec<Menu>,
+    pub menu_strings: Vec<String>,
+    pub unk3: Vec<u8>,
 }
+
+named!(pub header<&[u8], Header, CustomError<&[u8]>>,
+  do_parse!(
+    tag!("TPC32") >>
+    unk1: count!(le_u8, 0x13) >>
+    label_count: le_u32 >>
+    counter_start: le_u32 >>
+    labels: count!(le_u32, label_count as usize) >>
+    unk2: count!(le_u8, 0x30) >>
+    menu_count: le_u32 >>
+    menus: count!(menu, (menu_count) as usize) >>
+    menu_strings: call!(menu_strings, &menus) >>
+    unk3: count!(le_u8, 0x05) >>
+    (Header {
+        unk1: unk1,
+        labels: labels,
+        unk2: unk2,
+        counter_start: counter_start,
+        menus: menus,
+        menu_strings: menu_strings,
+        unk3: unk3
+    })
+  )
+);
 
 fn decode_sjis(input: &[u8]) -> Result<String, CustomError<&[u8]>> {
     let (res, _, errors) = SHIFT_JIS.decode(&input);
@@ -73,107 +98,110 @@ fn menu_strings<'a, 'b>(input: &'a [u8], menus: &'b [Menu]) -> ParseResult<'a, V
     nom::multi::count(c_string, str_count)(input)
 }
 
-named!(pub header<&[u8], Header, CustomError<&[u8]>>,
-  do_parse!(
-    tag!("TPC32") >>
-    take!(0x13) >>
-    label_count: le_u32 >>
-    counter_start: le_u32 >>
-    labels: count!(le_u32, label_count as usize) >>
-    take!(0x30) >>
-    menu_count: le_u32 >>
-    menus: count!(menu, (menu_count) as usize) >>
-    menu_strings: call!(menu_strings, &menus) >>
-    take!(5) >>
-    (Header {
-        label_count: label_count,
-        labels: labels,
-        counter_start: counter_start,
-        menu_count: menu_count,
-        menus: menus,
-        menu_strings: menu_strings
-    })
-  )
-);
-
-#[derive(Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct Menu {
-    id: u8,
-    submenu_count: u8,
-    submenus: Vec<Submenu>
+    pub id: u8,
+    pub unk1: u8,
+    pub unk2: u8,
+    pub submenus: Vec<Submenu>
 }
 
 named!(pub menu<&[u8], Menu, CustomError<&[u8]>>,
     do_parse!(
         id: le_u8 >>
         submenu_count: le_u8 >>
-        take!(2) >>
+            unk1: le_u8 >>
+            unk2: le_u8 >>
         submenus: count!(submenu, submenu_count as usize) >>
         (Menu {
             id: id,
-            submenu_count: submenu_count,
+            unk1: unk1,
+            unk2: unk2,
             submenus: submenus
         })
     )
 );
 
-#[derive(Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct Submenu {
-    id: u8,
-    flag_count: u8,
-    flags: Vec<Flag>
+    pub id: u8,
+    pub unk1: u8,
+    pub unk2: u8,
+    pub flags: Vec<Flag>
 }
 
 named!(pub submenu<&[u8], Submenu, CustomError<&[u8]>>,
     do_parse!(
         id: le_u8 >>
         flag_count: le_u8 >>
-        take!(2) >>
+            unk1: le_u8 >>
+            unk2: le_u8 >>
         flags: count!(flag, flag_count as usize) >>
         (Submenu {
             id: id,
-            flag_count: flag_count,
+            unk1: unk1,
+            unk2: unk2,
             flags: flags
         })
     )
 );
 
-#[derive(Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct Flag {
-    flag_count: u8,
-    flags: Vec<u32>
+    pub unk1: u8,
+    pub flags: Vec<u32>
 }
 
 named!(pub flag<&[u8], Flag, CustomError<&[u8]>>,
     do_parse!(
         flag_count: le_u8 >>
-        take!(1) >>
+            unk1: le_u8 >>
         flags: count!(le_u32, flag_count as usize) >>
         (Flag {
-            flag_count: flag_count,
+            unk1: unk1,
             flags: flags
         })
     )
 );
 
 /// Byte position (jump, if, etc.)
-pub type Pos = u32;
-
-/// Literal value or variable index
-pub type Val = u32;
-
-fn scene_value(input: &[u8]) -> ParseResult<Val> {
-    let num = input[0];
-    let l = ((num >> 4) & 7) as usize;
-    let mut ret: u32 = 0;
-    for i in (0..l).rev() {
-        ret <<= 4;
-        ret |= input[i] as u32;
-    }
-    Ok((&input[l..], ret))
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub enum Pos {
+    Byte(u32),
+    Label(String)
 }
 
-#[derive(Debug, PartialEq)]
+impl From<u32> for Pos {
+    fn from(i: u32) -> Self {
+        Pos::Byte(i)
+    }
+}
+
+named!(pub scene_pos<&[u8], Pos, CustomError<&[u8]>>,
+       map!(le_u32, Pos::from)
+);
+
+/// Literal value or variable index
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy)]
+pub struct Val(pub u32);
+
+pub fn scene_value(input: &[u8]) -> ParseResult<Val> {
+    let num = input[0];
+    let len = ((num >> 4) & 7) as usize;
+    let mut ret: u32 = 0;
+
+    for i in (0..len-1).rev() {
+        ret <<= 8;
+        ret |= input[i+1] as u32;
+    }
+
+    ret <<= 4;
+    ret |= (num & 0x0f) as u32;
+
+    Ok((&input[len..], Val(ret)))
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub enum SceneText {
     Pointer(Val),
     Literal(String)
@@ -189,7 +217,7 @@ fn scene_text(input: &[u8]) -> ParseResult<SceneText> {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub enum FormattedTextCmd {
     Integer(Val), // 0x01
     IntegerZeroPadded(Val, Val), // 0x02
@@ -208,7 +236,7 @@ named!(pub formatted_text_cmd<&[u8], FormattedTextCmd, CustomError<&[u8]>>,
     )
 );
 
-#[derive(Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub enum SceneFormattedTextEntry {
     Command(FormattedTextCmd), // 0x10
     Unknown, // 0x12
@@ -229,12 +257,13 @@ named!(pub scene_formatted_text_entry<&[u8], SceneFormattedTextEntry, CustomErro
        )
 );
 
-pub type SceneFormattedText = Vec<SceneFormattedTextEntry>;
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+pub struct SceneFormattedText(pub Vec<SceneFormattedTextEntry>);
 
 named!(pub scene_formatted_text<&[u8], SceneFormattedText, CustomError<&[u8]>>,
     do_parse!(
         res: many_till!(scene_formatted_text_entry, tag!("\0")) >>
-        (res.0)
+        (SceneFormattedText(res.0))
     )
 );
 
@@ -242,22 +271,20 @@ named!(pub scene_formatted_text<&[u8], SceneFormattedText, CustomError<&[u8]>>,
 // Opcode data
 //
 
-#[derive(Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub enum JumpToSceneCmd {
-    // Call(Pos), // 0x00 (?)
-    Jump(Pos), // 0x01
-    Call2(Pos), // 0x02 (?)
+    Jump(Val), // 0x01
+    Call(Val), // 0x02
 }
 
 named!(pub jump_to_scene_cmd<&[u8], JumpToSceneCmd, CustomError<&[u8]>>,
        switch!(le_u8,
-               // 0x00 => do_parse!(a: scene_value >> (JumpToSceneCmd::Call(a))) |
                0x01 => do_parse!(a: scene_value >> (JumpToSceneCmd::Jump(a))) |
-               0x02 => do_parse!(a: scene_value >> (JumpToSceneCmd::Call2(a)))
+               0x02 => do_parse!(a: scene_value >> (JumpToSceneCmd::Call(a)))
         )
 );
 
-#[derive(Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub enum TextWinCmd {
     Hide, // 0x01
     HideEffect, // 0x02
@@ -276,7 +303,7 @@ named!(pub text_win_cmd<&[u8], TextWinCmd, CustomError<&[u8]>>,
     )
 );
 
-#[derive(Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub enum FadeCmd {
     Fade(Val), // 0x01
     FadeTimed(Val, Val), // 0x02
@@ -323,78 +350,24 @@ named!(pub fade_cmd<&[u8], FadeCmd, CustomError<&[u8]>>,
     )
 );
 
-#[derive(Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct GrpEffect {
-    file: SceneText,
-    sx1: Val,
-    sy1: Val,
-    sx2: Val,
-    sy2: Val,
-    dx: Val,
-    dy: Val,
-    steptime: Val,
-    cmd: Val,
-    mask: Val,
-    arg1: Val,
-    arg2: Val,
-    arg3: Val,
-    step: Val,
-    arg5: Val,
-    arg6: Val,
-}
-
-#[derive(Debug, PartialEq)]
-pub enum GrpCompositeMethod {
-    Corner, // 0x01
-    Copy(Val), // 0x02
-    Move1(Val, Val, Val, Val, Val, Val), // 0x03
-    Move2(Val, Val, Val, Val, Val, Val, Val) // 0x04
-}
-
-#[derive(Debug, PartialEq)]
-pub struct GrpCompositeChild {
-    file: SceneText,
-    method: GrpCompositeMethod
-}
-
-#[derive(Debug, PartialEq)]
-pub struct GrpComposite {
-    count: u8,
-    base_file: SceneText,
-    idx: Val,
-    children: Vec<GrpCompositeChild>
-}
-
-#[derive(Debug, PartialEq)]
-pub struct GrpCompositeIndexed {
-    count: u8,
-    base_file: Val,
-    idx: Val,
-    children: Vec<GrpCompositeChild>
-}
-
-#[derive(Debug, PartialEq)]
-pub enum GrpCmd {
-    Load(SceneText, Val), // 0x01
-    LoadEffect(GrpEffect), // 0x02
-    Load2(SceneText, Val), // 0x03
-    LoadEffect2(GrpEffect), // 0x04
-    Load3(SceneText, Val), // 0x05
-    LoadEffect3(GrpEffect), // 0x06
-    Unknown1, // 0x08
-    LoadToBuf(SceneText, Val), // 0x09
-    LoadToBuf2(SceneText, Val), // 0x10
-    LoadCaching(SceneText), // 0x11
-    GrpCmd0x13, // 0x13
-    LoadComposite(GrpComposite), // 0x22
-    LoadCompositeIndexed(GrpCompositeIndexed), // 0x24
-    MacroBufferClear, // 0x30
-    MacroBufferDelete(Val), // 0x31
-    MacroBufferRead(Val), // 0x32
-    MacroBufferSet(Val), // 0x33
-    BackupScreenCopy, // 0x50
-    BackupScreenDisplay(Val), // 0x52
-    LoadToBuf3(SceneText, Val), // 0x54
+    pub file: SceneText,
+    pub sx1: Val,
+    pub sy1: Val,
+    pub sx2: Val,
+    pub sy2: Val,
+    pub dx: Val,
+    pub dy: Val,
+    pub steptime: Val,
+    pub cmd: Val,
+    pub mask: Val,
+    pub arg1: Val,
+    pub arg2: Val,
+    pub arg3: Val,
+    pub step: Val,
+    pub arg5: Val,
+    pub arg6: Val,
 }
 
 named!(pub grp_effect<&[u8], GrpEffect, CustomError<&[u8]>>,
@@ -435,6 +408,20 @@ named!(pub grp_effect<&[u8], GrpEffect, CustomError<&[u8]>>,
                })
        )
 );
+
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+pub enum GrpCompositeMethod {
+    Corner, // 0x01
+    Copy(Val), // 0x02
+    Move1(Val, Val, Val, Val, Val, Val), // 0x03
+    Move2(Val, Val, Val, Val, Val, Val, Val) // 0x04
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+pub struct GrpCompositeChild {
+    pub file: SceneText,
+    pub method: GrpCompositeMethod
+}
 
 fn grp_composite_child(input: &[u8]) -> ParseResult<GrpCompositeChild> {
     let mut inp = input;
@@ -485,20 +472,33 @@ fn grp_composite_child(input: &[u8]) -> ParseResult<GrpCompositeChild> {
     Ok((inp, child))
 }
 
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+pub struct GrpComposite {
+    pub base_file: SceneText,
+    pub idx: Val,
+    pub children: Vec<GrpCompositeChild>
+}
+
 named!(pub grp_composite<&[u8], GrpComposite, CustomError<&[u8]>>,
        do_parse!(
            count: le_u8 >>
-           base_file: scene_text >>
-           idx: scene_value >>
+               base_file: scene_text >>
+               idx: scene_value >>
                children: count!(grp_composite_child, count as usize) >>
                (GrpComposite {
-                   count: count,
                    base_file: base_file,
                    idx: idx,
                    children: children
                })
        )
 );
+
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+pub struct GrpCompositeIndexed {
+    pub base_file: Val,
+    pub idx: Val,
+    pub children: Vec<GrpCompositeChild>
+}
 
 named!(pub grp_composite_indexed<&[u8], GrpCompositeIndexed, CustomError<&[u8]>>,
        do_parse!(
@@ -507,13 +507,36 @@ named!(pub grp_composite_indexed<&[u8], GrpCompositeIndexed, CustomError<&[u8]>>
            idx: scene_value >>
                children: count!(grp_composite_child, count as usize) >>
                (GrpCompositeIndexed {
-                   count: count,
                    base_file: base_file,
                    idx: idx,
                    children: children
                })
        )
 );
+
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+pub enum GrpCmd {
+    Load(SceneText, Val), // 0x01
+    LoadEffect(GrpEffect), // 0x02
+    Load2(SceneText, Val), // 0x03
+    LoadEffect2(GrpEffect), // 0x04
+    Load3(SceneText, Val), // 0x05
+    LoadEffect3(GrpEffect), // 0x06
+    Unknown1, // 0x08
+    LoadToBuf(SceneText, Val), // 0x09
+    LoadToBuf2(SceneText, Val), // 0x10
+    LoadCaching(SceneText), // 0x11
+    GrpCmd0x13, // 0x13
+    LoadComposite(GrpComposite), // 0x22
+    LoadCompositeIndexed(GrpCompositeIndexed), // 0x24
+    MacroBufferClear, // 0x30
+    MacroBufferDelete(Val), // 0x31
+    MacroBufferRead(Val), // 0x32
+    MacroBufferSet(Val), // 0x33
+    BackupScreenCopy, // 0x50
+    BackupScreenDisplay(Val), // 0x52
+    LoadToBuf3(SceneText, Val), // 0x54
+}
 
 named!(pub grp_cmd<&[u8], GrpCmd, CustomError<&[u8]>>,
        switch!(le_u8,
@@ -595,14 +618,7 @@ named!(pub grp_cmd<&[u8], GrpCmd, CustomError<&[u8]>>,
        )
 );
 
-named!(pub opcode_0x0b<&[u8], Opcode, CustomError<&[u8]>>,
-       do_parse!(
-           a: grp_cmd >>
-           (Opcode::Graphics(a))
-       )
-);
-
-#[derive(Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub enum SndCmd {
     BgmLoop(SceneText), // 0x01
     BgmWait(SceneText), // 0x02
@@ -781,43 +797,42 @@ named!(pub snd_cmd<&[u8], SndCmd, CustomError<&[u8]>>,
        )
 );
 
-#[derive(Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub enum Ret {
-    Color(Val),
-    Choice,
-    DisabledChoice,
-    Unknown(u8)
+    Color(Val), // 0x20
+    Choice, // 0x21
+    DisabledChoice(Val) // 0x22
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub enum Condition {
-    IncDepth,
-    DecDepth,
-    And,
-    Or,
-    Ret(Ret),
-    BitNotEq(Val, Val),
-    BitEq(Val, Val),
-    NotEq(Val, Val),
-    Eq(Val, Val),
-    FlagNotEqConst(Val, Val),
-    FlagEqConst(Val, Val),
-    FlagAndConst(Val, Val),
-    FlagAndConst2(Val, Val),
-    FlagXorConst(Val, Val),
-    FlagGtConst(Val, Val),
-    FlagLtConst(Val, Val),
-    FlagGeqConst(Val, Val),
-    FlagLeqConst(Val, Val),
-    FlagNotEq(Val, Val),
-    FlagEq(Val, Val),
-    FlagAnd(Val, Val),
-    FlagAnd2(Val, Val),
-    FlagXor(Val, Val),
-    FlagGt(Val, Val),
-    FlagLt(Val, Val),
-    FlagGeq(Val, Val),
-    FlagLeq(Val, Val)
+    IncDepth, // 0x26
+    DecDepth, // 0x27
+    And, // 0x28
+    Or, // 0x29
+    BitNotEq(Val, Val), // 0x36
+    BitEq(Val, Val), // 0x37
+    NotEq(Val, Val), // 0x38
+    Eq(Val, Val), // 0x39
+    FlagNotEqConst(Val, Val), // 0x3A
+    FlagEqConst(Val, Val), // 0x3B
+    FlagAndConst(Val, Val), // 0x41
+    FlagAndConst2(Val, Val), // 0x42
+    FlagXorConst(Val, Val), // 0x43
+    FlagGtConst(Val, Val), // 0x44
+    FlagLtConst(Val, Val), // 0x45
+    FlagGeqConst(Val, Val), // 0x46
+    FlagLeqConst(Val, Val), // 0x47
+    FlagNotEq(Val, Val), // 0x48
+    FlagEq(Val, Val), // 0x49
+    FlagAnd(Val, Val), // 0x4F
+    FlagAnd2(Val, Val), // 0x50
+    FlagXor(Val, Val), // 0x51
+    FlagGt(Val, Val), // 0x52
+    FlagLt(Val, Val), // 0x53
+    FlagGeq(Val, Val), // 0x54
+    FlagLeq(Val, Val), // 0x55
+    Ret(Ret), // 0x58
 }
 
 fn scene_conditions(input: &[u8]) -> ParseResult<Vec<Condition>> {
@@ -890,9 +905,9 @@ fn scene_conditions(input: &[u8]) -> ParseResult<Vec<Condition>> {
                     0x22 => {
                         let (i, val) = scene_value(inp)?;
                         inp = i;
-                        Ret::Color(val)
+                        Ret::DisabledChoice(val)
                     },
-                    i => Ret::Unknown(i)
+                    _ => unreachable!()
                 };
                 Condition::Ret(ret)
             },
@@ -905,7 +920,7 @@ fn scene_conditions(input: &[u8]) -> ParseResult<Vec<Condition>> {
     Ok((inp, conditions))
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub enum ScreenShakeCmd {
     ScreenShake(Val), // 0x01
 }
@@ -919,18 +934,18 @@ named!(pub screen_shake_cmd<&[u8], ScreenShakeCmd, CustomError<&[u8]>>,
     )
 );
 
-#[derive(Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub enum WaitCmd {
-    Wait(Val),
-    WaitMouse(Val, Val),
-    SetToBase,
-    WaitFromBase(Val),
-    WaitFromBaseMouse(Val),
-    SetToBaseVal(Val),
-    Wait0x10,
-    Wait0x11,
-    Wait0x12,
-    Wait0x13
+    Wait(Val), // 0x01
+    WaitMouse(Val, Val), // 0x02
+    SetToBase, // 0x03
+    WaitFromBase(Val), // 0x04
+    WaitFromBaseMouse(Val), // 0x05
+    SetToBaseVal(Val), // 0x06
+    Wait0x10, // 0x10
+    Wait0x11, // 0x11
+    Wait0x12, // 0x12
+    Wait0x13 // 0x13
 }
 
 named!(pub wait_cmd<&[u8], WaitCmd, CustomError<&[u8]>>,
@@ -964,7 +979,7 @@ named!(pub wait_cmd<&[u8], WaitCmd, CustomError<&[u8]>>,
     )
 );
 
-#[derive(Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub enum RetCmd {
     SameScene, // 0x01
     OtherScene, // 0x02
@@ -981,7 +996,7 @@ named!(pub ret_cmd<&[u8], RetCmd, CustomError<&[u8]>>,
     )
 );
 
-#[derive(Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub enum ScenarioMenuCmd {
     SetBit(Val), // 0x01
     SetBit2(Val, Val) // 0x02
@@ -994,7 +1009,7 @@ named!(pub scenario_menu_cmd<&[u8], ScenarioMenuCmd, CustomError<&[u8]>>,
     )
 );
 
-#[derive(Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub enum TextRankCmd {
     Set(Val), // 0x01
     Clear, // 0x02
@@ -1007,16 +1022,22 @@ named!(pub text_rank_cmd<&[u8], TextRankCmd, CustomError<&[u8]>>,
     )
 );
 
-#[derive(Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub enum Choice {
     Choice, // 0x22
     End // 0x23
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+pub struct ChoiceText {
+    pub pad: Option<u8>,
+    pub texts: Vec<SceneFormattedText>
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub enum ChoiceCmd {
-    Choice(Val, Option<Vec<SceneFormattedText>>), // 0x01
-    Choice2(Val, Option<Vec<SceneFormattedText>>), // 0x02
+    Choice(Val, u8, Option<ChoiceText>), // 0x01
+    Choice2(Val, u8, Option<ChoiceText>), // 0x02
     LoadMenu(Val) // 0x04
 }
 
@@ -1027,36 +1048,36 @@ named!(pub choice_cmd<&[u8], ChoiceCmd, CustomError<&[u8]>>,
                     flag: le_u8 >>
                     texts: cond!(flag == 0x22,
                           do_parse!(
-                              opt!(tag!("\0")) >>
-                                  res: many_till!(
+                              pad: opt!(le_u8) >>
+                                  texts: many_till!(
                                       scene_formatted_text,
                                       tag!([0x23])
                                   ) >>
-                                  (res.0)
+                                  (ChoiceText { pad: pad, texts: texts.0 })
                         )
                     ) >>
-                    (ChoiceCmd::Choice(index, texts))
+                    (ChoiceCmd::Choice(index, flag, texts))
             ) |
             0x02 => do_parse!(
                 index: scene_value >>
                     flag: le_u8 >>
                     texts: cond!(flag == 0x22,
                           do_parse!(
-                              opt!(tag!("\0")) >>
-                                  res: many_till!(
+                              pad: opt!(le_u8) >>
+                                  texts: many_till!(
                                       scene_formatted_text,
                                       tag!([0x23])
                                   ) >>
-                                  (res.0)
+                                  (ChoiceText { pad: pad, texts: texts.0 })
                         )
                     ) >>
-                    (ChoiceCmd::Choice2(index, texts))
+                    (ChoiceCmd::Choice2(index, flag, texts))
             ) |
         0x04 => do_parse!(index: scene_value >> (ChoiceCmd::LoadMenu(index)))
     )
 );
 
-#[derive(Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub enum StringCmd {
     StrcpyLiteral(Val, SceneText), // 0x01
     Strlen(Val, Val), // 0x02
@@ -1081,7 +1102,7 @@ named!(pub string_cmd<&[u8], StringCmd, CustomError<&[u8]>>,
     )
 );
 
-#[derive(Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub enum SetMultiCmd {
     Val(Val, Val, Val), // 0x01
     Bit(Val, Val, Val), // 0x02
@@ -1104,16 +1125,16 @@ named!(pub set_multi_cmd<&[u8], SetMultiCmd, CustomError<&[u8]>>,
        )
 );
 
-#[derive(Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct BRGRectColor {
-    srcx1: Val,
-    srcy1: Val,
-    srcx2: Val,
-    srcy2: Val,
-    srcpdt: Val,
-    r: Val,
-    g: Val,
-    b: Val,
+    pub srcx1: Val,
+    pub srcy1: Val,
+    pub srcx2: Val,
+    pub srcy2: Val,
+    pub srcpdt: Val,
+    pub r: Val,
+    pub g: Val,
+    pub b: Val,
 }
 
 named!(pub brg_rect_color<&[u8], BRGRectColor, CustomError<&[u8]>>,
@@ -1139,13 +1160,13 @@ named!(pub brg_rect_color<&[u8], BRGRectColor, CustomError<&[u8]>>,
        )
 );
 
-#[derive(Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct BRGRect {
-    srcx1: Val,
-    srcy1: Val,
-    srcx2: Val,
-    srcy2: Val,
-    srcpdt: Val,
+    pub srcx1: Val,
+    pub srcy1: Val,
+    pub srcx2: Val,
+    pub srcy2: Val,
+    pub srcpdt: Val,
 }
 
 named!(pub brg_rect<&[u8], BRGRect, CustomError<&[u8]>>,
@@ -1165,17 +1186,17 @@ named!(pub brg_rect<&[u8], BRGRect, CustomError<&[u8]>>,
        )
 );
 
-#[derive(Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct BRGFadeOutColor {
-    srcx1: Val,
-    srcy1: Val,
-    srcx2: Val,
-    srcy2: Val,
-    srcpdt: Val,
-    r: Val,
-    g: Val,
-    b: Val,
-    count: Val,
+    pub srcx1: Val,
+    pub srcy1: Val,
+    pub srcx2: Val,
+    pub srcy2: Val,
+    pub srcpdt: Val,
+    pub r: Val,
+    pub g: Val,
+    pub b: Val,
+    pub count: Val,
 }
 
 named!(pub brg_fade_out_color<&[u8], BRGFadeOutColor, CustomError<&[u8]>>,
@@ -1203,18 +1224,18 @@ named!(pub brg_fade_out_color<&[u8], BRGFadeOutColor, CustomError<&[u8]>>,
        )
 );
 
-#[derive(Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct BRGStretchBlit {
-    srcx1: Val,
-    srcy1: Val,
-    srcx2: Val,
-    srcy2: Val,
-    srcpdt: Val,
-    dstx1: Val,
-    dstx2: Val,
-    dsty1: Val,
-    dsty2: Val,
-    dstpdt: Val,
+    pub srcx1: Val,
+    pub srcy1: Val,
+    pub srcx2: Val,
+    pub srcy2: Val,
+    pub srcpdt: Val,
+    pub dstx1: Val,
+    pub dstx2: Val,
+    pub dsty1: Val,
+    pub dsty2: Val,
+    pub dstpdt: Val,
 }
 
 named!(pub brg_stretch_blit<&[u8], BRGStretchBlit, CustomError<&[u8]>>,
@@ -1244,24 +1265,24 @@ named!(pub brg_stretch_blit<&[u8], BRGStretchBlit, CustomError<&[u8]>>,
        )
 );
 
-#[derive(Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct BRGStretchBlitEffect {
-    sx1: Val,
-    sy1: Val,
-    sx2: Val,
-    sy2: Val,
-    ex1: Val,
-    ey1: Val,
-    ex2: Val,
-    ey2: Val,
-    srcpdt: Val,
-    dx1: Val,
-    dy1: Val,
-    dx2: Val,
-    dy2: Val,
-    dstpdt: Val,
-    step: Val,
-    steptime: Val
+    pub sx1: Val,
+    pub sy1: Val,
+    pub sx2: Val,
+    pub sy2: Val,
+    pub ex1: Val,
+    pub ey1: Val,
+    pub ex2: Val,
+    pub ey2: Val,
+    pub srcpdt: Val,
+    pub dx1: Val,
+    pub dy1: Val,
+    pub dx2: Val,
+    pub dy2: Val,
+    pub dstpdt: Val,
+    pub step: Val,
+    pub steptime: Val
 }
 
 named!(pub brg_stretch_blit_effect<&[u8], BRGStretchBlitEffect, CustomError<&[u8]>>,
@@ -1303,7 +1324,7 @@ named!(pub brg_stretch_blit_effect<&[u8], BRGStretchBlitEffect, CustomError<&[u8
        )
 );
 
-#[derive(Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub enum BufferRegionGrpCmd {
     ClearRect(BRGRectColor), // 0x02
     DrawRectLine(BRGRectColor), // 0x04
@@ -1311,7 +1332,7 @@ pub enum BufferRegionGrpCmd {
     ColorMask(BRGRectColor), // 0x10
     FadeOutColor(BRGRect), // 0x11
     FadeOutColor2(BRGRect), // 0x12
-    FadeOutColor3(BRGFadeOutColor), // 0x12
+    FadeOutColor3(BRGFadeOutColor), // 0x15
     MakeMonoImage(BRGRect), // 0x20
     StretchBlit(BRGStretchBlit), // 0x30
     StretchBlitEffect(BRGStretchBlitEffect), // 0x32
@@ -1325,21 +1346,21 @@ named!(pub buffer_region_grp_cmd<&[u8], BufferRegionGrpCmd, CustomError<&[u8]>>,
                0x10 => do_parse!(a: brg_rect_color >> (BufferRegionGrpCmd::ColorMask(a))) |
                0x11 => do_parse!(a: brg_rect >> (BufferRegionGrpCmd::FadeOutColor(a))) |
                0x12 => do_parse!(a: brg_rect >> (BufferRegionGrpCmd::FadeOutColor2(a))) |
-               0x12 => do_parse!(a: brg_fade_out_color >> (BufferRegionGrpCmd::FadeOutColor3(a))) |
+               0x15 => do_parse!(a: brg_fade_out_color >> (BufferRegionGrpCmd::FadeOutColor3(a))) |
                0x20 => do_parse!(a: brg_rect >> (BufferRegionGrpCmd::MakeMonoImage(a))) |
                0x30 => do_parse!(a: brg_stretch_blit >> (BufferRegionGrpCmd::StretchBlit(a))) |
                0x32 => do_parse!(a: brg_stretch_blit_effect >> (BufferRegionGrpCmd::StretchBlitEffect(a)))
        )
 );
 
-#[derive(Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct BGCopySamePos {
-    srcx1: Val,
-    srcy1: Val,
-    srcx2: Val,
-    srcy2: Val,
-    srcpdt: Val,
-    flag: Val,
+    pub srcx1: Val,
+    pub srcy1: Val,
+    pub srcx2: Val,
+    pub srcy2: Val,
+    pub srcpdt: Val,
+    pub flag: Val,
 }
 
 named!(pub bg_copy_same_pos<&[u8], BGCopySamePos, CustomError<&[u8]>>,
@@ -1361,17 +1382,17 @@ named!(pub bg_copy_same_pos<&[u8], BGCopySamePos, CustomError<&[u8]>>,
        )
 );
 
-#[derive(Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct BGCopyNewPos {
-    srcx1: Val,
-    srcy1: Val,
-    srcx2: Val,
-    srcy2: Val,
-    srcpdt: Val,
-    dstx1: Val,
-    dsty1: Val,
-    dstpdt: Val,
-    flag: Option<Val>
+    pub srcx1: Val,
+    pub srcy1: Val,
+    pub srcx2: Val,
+    pub srcy2: Val,
+    pub srcpdt: Val,
+    pub dstx1: Val,
+    pub dsty1: Val,
+    pub dstpdt: Val,
+    pub flag: Option<Val>
 }
 
 named!(pub bg_copy_new_pos<&[u8], BGCopyNewPos, CustomError<&[u8]>>,
@@ -1424,19 +1445,19 @@ named!(pub bg_copy_new_pos_mask<&[u8], BGCopyNewPos, CustomError<&[u8]>>,
        )
 );
 
-#[derive(Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct BGCopyColor {
-    srcx1: Val,
-    srcy1: Val,
-    srcx2: Val,
-    srcy2: Val,
-    srcpdt: Val,
-    dstx1: Val,
-    dsty1: Val,
-    dstpdt: Val,
-    r: Val,
-    g: Val,
-    b: Val
+    pub srcx1: Val,
+    pub srcy1: Val,
+    pub srcx2: Val,
+    pub srcy2: Val,
+    pub srcpdt: Val,
+    pub dstx1: Val,
+    pub dsty1: Val,
+    pub dstpdt: Val,
+    pub r: Val,
+    pub g: Val,
+    pub b: Val
 }
 
 named!(pub bg_copy_color<&[u8], BGCopyColor, CustomError<&[u8]>>,
@@ -1468,16 +1489,16 @@ named!(pub bg_copy_color<&[u8], BGCopyColor, CustomError<&[u8]>>,
        )
 );
 
-#[derive(Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct BGSwap {
-    srcx1: Val,
-    srcy1: Val,
-    srcx2: Val,
-    srcy2: Val,
-    srcpdt: Val,
-    dstx1: Val,
-    dsty1: Val,
-    dstpdt: Val,
+    pub srcx1: Val,
+    pub srcy1: Val,
+    pub srcx2: Val,
+    pub srcy2: Val,
+    pub srcpdt: Val,
+    pub dstx1: Val,
+    pub dsty1: Val,
+    pub dstpdt: Val,
 }
 
 named!(pub bg_swap<&[u8], BGSwap, CustomError<&[u8]>>,
@@ -1503,17 +1524,17 @@ named!(pub bg_swap<&[u8], BGSwap, CustomError<&[u8]>>,
        )
 );
 
-#[derive(Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct BGCopyWithMask {
-    srcx1: Val,
-    srcy1: Val,
-    srcx2: Val,
-    srcy2: Val,
-    srcpdt: Val,
-    dstx1: Val,
-    dsty1: Val,
-    dstpdt: Val,
-    flag: Val
+    pub srcx1: Val,
+    pub srcy1: Val,
+    pub srcx2: Val,
+    pub srcy2: Val,
+    pub srcpdt: Val,
+    pub dstx1: Val,
+    pub dsty1: Val,
+    pub dstpdt: Val,
+    pub flag: Val
 }
 
 named!(pub bg_copy_with_mask<&[u8], BGCopyWithMask, CustomError<&[u8]>>,
@@ -1541,11 +1562,11 @@ named!(pub bg_copy_with_mask<&[u8], BGCopyWithMask, CustomError<&[u8]>>,
        )
 );
 
-#[derive(Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct BGCopyWholeScreen {
-    srcpdt: Val,
-    dstpdt: Val,
-    flag: Option<Val>
+    pub srcpdt: Val,
+    pub dstpdt: Val,
+    pub flag: Option<Val>
 }
 
 named!(pub bg_copy_whole_screen<&[u8], BGCopyWholeScreen, CustomError<&[u8]>>,
@@ -1574,23 +1595,23 @@ named!(pub bg_copy_whole_screen_mask<&[u8], BGCopyWholeScreen, CustomError<&[u8]
        )
 );
 
-#[derive(Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct BGDisplayStrings {
-    n: Val,
-    srcx1: Val,
-    srcy1: Val,
-    srcx2: Val,
-    srcy2: Val,
-    srcdx: Val,
-    srcdy: Val,
-    srcpdt: Val,
-    dstx1: Val,
-    dsty1: Val,
-    dstx2: Val,
-    dsty2: Val,
-    count: Val,
-    zero: Val,
-    dstpdt: Val,
+    pub n: Val,
+    pub srcx1: Val,
+    pub srcy1: Val,
+    pub srcx2: Val,
+    pub srcy2: Val,
+    pub srcdx: Val,
+    pub srcdy: Val,
+    pub srcpdt: Val,
+    pub dstx1: Val,
+    pub dsty1: Val,
+    pub dstx2: Val,
+    pub dsty2: Val,
+    pub count: Val,
+    pub zero: Val,
+    pub dstpdt: Val,
 }
 
 named!(pub bg_display_strings<&[u8], BGDisplayStrings, CustomError<&[u8]>>,
@@ -1630,24 +1651,24 @@ named!(pub bg_display_strings<&[u8], BGDisplayStrings, CustomError<&[u8]>>,
        )
 );
 
-#[derive(Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct BGDisplayStringsMask {
-    n: Val,
-    srcx1: Val,
-    srcy1: Val,
-    srcx2: Val,
-    srcy2: Val,
-    srcdx: Val,
-    srcdy: Val,
-    srcpdt: Val,
-    dstx1: Val,
-    dsty1: Val,
-    dstx2: Val,
-    dsty2: Val,
-    count: Val,
-    zero: Val,
-    dstpdt: Val,
-    flag: Val,
+    pub n: Val,
+    pub srcx1: Val,
+    pub srcy1: Val,
+    pub srcx2: Val,
+    pub srcy2: Val,
+    pub srcdx: Val,
+    pub srcdy: Val,
+    pub srcpdt: Val,
+    pub dstx1: Val,
+    pub dsty1: Val,
+    pub dstx2: Val,
+    pub dsty2: Val,
+    pub count: Val,
+    pub zero: Val,
+    pub dstpdt: Val,
+    pub flag: Val,
 }
 
 named!(pub bg_display_strings_mask<&[u8], BGDisplayStringsMask, CustomError<&[u8]>>,
@@ -1689,26 +1710,26 @@ named!(pub bg_display_strings_mask<&[u8], BGDisplayStringsMask, CustomError<&[u8
        )
 );
 
-#[derive(Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct BGDisplayStringsColor {
-    n: Val,
-    srcx1: Val,
-    srcy1: Val,
-    srcx2: Val,
-    srcy2: Val,
-    srcdx: Val,
-    srcdy: Val,
-    srcpdt: Val,
-    dstx1: Val,
-    dsty1: Val,
-    dstx2: Val,
-    dsty2: Val,
-    count: Val,
-    zero: Val,
-    dstpdt: Val,
-    r: Val,
-    g: Val,
-    b: Val
+    pub n: Val,
+    pub srcx1: Val,
+    pub srcy1: Val,
+    pub srcx2: Val,
+    pub srcy2: Val,
+    pub srcdx: Val,
+    pub srcdy: Val,
+    pub srcpdt: Val,
+    pub dstx1: Val,
+    pub dsty1: Val,
+    pub dstx2: Val,
+    pub dsty2: Val,
+    pub count: Val,
+    pub zero: Val,
+    pub dstpdt: Val,
+    pub r: Val,
+    pub g: Val,
+    pub b: Val
 }
 
 named!(pub bg_display_strings_color<&[u8], BGDisplayStringsColor, CustomError<&[u8]>>,
@@ -1754,7 +1775,7 @@ named!(pub bg_display_strings_color<&[u8], BGDisplayStringsColor, CustomError<&[
        )
 );
 
-#[derive(Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub enum BufferGrpCmd {
     CopySamePos(BGCopySamePos), // 0x00
     CopyNewPos(BGCopyNewPos), // 0x01
@@ -1785,7 +1806,7 @@ named!(pub buffer_grp_cmd<&[u8], BufferGrpCmd, CustomError<&[u8]>>,
        )
 );
 
-#[derive(Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub enum FlashGrpCmd {
     FillColor(Val, Val, Val, Val), // 0x01
     FlashScreen(Val, Val, Val, Val, Val), // 0x10
@@ -1811,10 +1832,10 @@ named!(pub flash_grp_cmd<&[u8], FlashGrpCmd, CustomError<&[u8]>>,
        )
 );
 
-#[derive(Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct MultiPdtEntry {
-    text: SceneText,
-    data: Val
+    pub text: SceneText,
+    pub data: Val
 }
 
 named!(pub multi_pdt_entry<&[u8], MultiPdtEntry, CustomError<&[u8]>>,
@@ -1828,7 +1849,7 @@ named!(pub multi_pdt_entry<&[u8], MultiPdtEntry, CustomError<&[u8]>>,
        )
 );
 
-#[derive(Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub enum MultiPdtCmd {
     Slideshow(Val, Val, Vec<MultiPdtEntry>), // 0x03
     SlideshowLoop(Val, Val, Vec<MultiPdtEntry>), // 0x04
@@ -1885,7 +1906,7 @@ named!(pub multi_pdt_cmd<&[u8], MultiPdtCmd, CustomError<&[u8]>>,
                ))
 );
 
-#[derive(Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub enum SystemCmd {
     LoadGame(Val), // 0x02
     SaveGame(Val), // 0x03
@@ -1914,10 +1935,10 @@ named!(pub system_cmd<&[u8], SystemCmd, CustomError<&[u8]>>,
        )
 );
 
-#[derive(Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct NameInputItem {
-    idx: Val,
-    text: SceneFormattedText
+    pub idx: Val,
+    pub text: SceneFormattedText
 }
 
 named!(pub name_input_item<&[u8], NameInputItem, CustomError<&[u8]>>,
@@ -1931,7 +1952,7 @@ named!(pub name_input_item<&[u8], NameInputItem, CustomError<&[u8]>>,
        )
 );
 
-#[derive(Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub enum NameCmd {
     InputBox(Val, Val, Val, Val, Val, Val, Val, Val, Val, Val), // 0x01
     InputBoxFinish(Val), // 0x02
@@ -2017,7 +2038,7 @@ named!(pub name_cmd<&[u8], NameCmd, CustomError<&[u8]>>,
        )
 );
 
-#[derive(Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub enum AreaBufferCmd {
     ReadCurArd(SceneText, SceneText), // 0x02
     Init, // 0x03
@@ -2069,7 +2090,7 @@ named!(pub area_buffer_cmd<&[u8], AreaBufferCmd, CustomError<&[u8]>>,
        )
 );
 
-#[derive(Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub enum MouseCtrlCmd {
     WaitForClick, // 0x01
     SetPos(Val, Val, Val), // 0x02
@@ -2093,8 +2114,8 @@ named!(pub mouse_ctrl_cmd<&[u8], MouseCtrlCmd, CustomError<&[u8]>>,
        )
 );
 
-#[derive(Debug, PartialEq)]
-pub enum SetVolCmd {
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+pub enum VolumeCmd {
     GetBgmVolume(Val), // 0x01
     GetWavVolume(Val), // 0x02
     GetKoeVolume(Val), // 0x03
@@ -2109,24 +2130,24 @@ pub enum SetVolCmd {
     MuteSe(Val), // 0x24
 }
 
-named!(pub set_vol_cmd<&[u8], SetVolCmd, CustomError<&[u8]>>,
+named!(pub set_vol_cmd<&[u8], VolumeCmd, CustomError<&[u8]>>,
        switch!(le_u8,
-               0x01 => do_parse!(a: scene_value >> (SetVolCmd::GetBgmVolume(a))) |
-               0x02 => do_parse!(a: scene_value >> (SetVolCmd::GetWavVolume(a))) |
-               0x03 => do_parse!(a: scene_value >> (SetVolCmd::GetKoeVolume(a))) |
-               0x04 => do_parse!(a: scene_value >> (SetVolCmd::GetSeVolume(a))) |
-               0x11 => do_parse!(a: scene_value >> (SetVolCmd::SetBgmVolume(a))) |
-               0x12 => do_parse!(a: scene_value >> (SetVolCmd::SetWavVolume(a))) |
-               0x13 => do_parse!(a: scene_value >> (SetVolCmd::SetKoeVolume(a))) |
-               0x14 => do_parse!(a: scene_value >> (SetVolCmd::SetSeVolume(a))) |
-               0x21 => do_parse!(a: scene_value >> (SetVolCmd::MuteBgm(a))) |
-               0x22 => do_parse!(a: scene_value >> (SetVolCmd::MuteWav(a))) |
-               0x23 => do_parse!(a: scene_value >> (SetVolCmd::MuteKoe(a))) |
-               0x24 => do_parse!(a: scene_value >> (SetVolCmd::MuteSe(a)))
+               0x01 => do_parse!(a: scene_value >> (VolumeCmd::GetBgmVolume(a))) |
+               0x02 => do_parse!(a: scene_value >> (VolumeCmd::GetWavVolume(a))) |
+               0x03 => do_parse!(a: scene_value >> (VolumeCmd::GetKoeVolume(a))) |
+               0x04 => do_parse!(a: scene_value >> (VolumeCmd::GetSeVolume(a))) |
+               0x11 => do_parse!(a: scene_value >> (VolumeCmd::SetBgmVolume(a))) |
+               0x12 => do_parse!(a: scene_value >> (VolumeCmd::SetWavVolume(a))) |
+               0x13 => do_parse!(a: scene_value >> (VolumeCmd::SetKoeVolume(a))) |
+               0x14 => do_parse!(a: scene_value >> (VolumeCmd::SetSeVolume(a))) |
+               0x21 => do_parse!(a: scene_value >> (VolumeCmd::MuteBgm(a))) |
+               0x22 => do_parse!(a: scene_value >> (VolumeCmd::MuteWav(a))) |
+               0x23 => do_parse!(a: scene_value >> (VolumeCmd::MuteKoe(a))) |
+               0x24 => do_parse!(a: scene_value >> (VolumeCmd::MuteSe(a)))
        )
 );
 
-#[derive(Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub enum NovelModeCmd {
     SetEnabled(Val), // 0x01
     Unknown1(Val), // 0x02
@@ -2145,7 +2166,7 @@ named!(pub novel_mode_cmd<&[u8], NovelModeCmd, CustomError<&[u8]>>,
        )
 );
 
-#[derive(Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub enum WindowVarCmd {
     GetBgFlagColor(Val, Val, Val, Val), // 0x01
     SetBgFlagColor(Val, Val, Val, Val), // 0x02
@@ -2182,7 +2203,7 @@ named!(pub window_var_cmd<&[u8], WindowVarCmd, CustomError<&[u8]>>,
        )
 );
 
-#[derive(Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub enum MessageWinCmd {
     GetWindowMsgPos(Val, Val), // 0x01
     GetWindowComPos(Val, Val), // 0x02
@@ -2211,7 +2232,7 @@ named!(pub message_win_cmd<&[u8], MessageWinCmd, CustomError<&[u8]>>,
        )
 );
 
-#[derive(Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub enum SystemVarCmd {
     GetMessageSize(Val, Val), // 0x01
     SetMessageSize(Val, Val), // 0x02
@@ -2298,7 +2319,7 @@ named!(pub system_var_cmd<&[u8], SystemVarCmd, CustomError<&[u8]>>,
        )
 );
 
-#[derive(Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub enum PopupMenuCmd {
     GetMenuDisabled(Val), // 0x01
     SetMenuDisabled(Val), // 0x02
@@ -2315,7 +2336,7 @@ named!(pub popup_menu_cmd<&[u8], PopupMenuCmd, CustomError<&[u8]>>,
        )
 );
 
-#[derive(Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub enum Opcode {
     WaitMouse, // 0x01
     Newline, // 0x02
@@ -2337,8 +2358,8 @@ pub enum Opcode {
     Op0x1a,
     Call(Pos), // 0x1b
     Jump(Pos), // 0x1c
-    TableCall(u8, Val, Vec<Pos>), // 0x1d
-    TableJump(u8, Val, Vec<Pos>), // 0x1e
+    TableCall(Val, Vec<Pos>), // 0x1d
+    TableJump(Val, Vec<Pos>), // 0x1e
     Return(RetCmd), // 0x20
     Unknown0x22, // 0x22
     Unknown0x23, // 0x23
@@ -2387,9 +2408,7 @@ pub enum Opcode {
     Name(NameCmd), // 0x61
     Op0x63,
     BufferRegion(BufferRegionGrpCmd), // 0x64
-    /// ???
     Unknown0x65, // 0x65
-    /// Buffer Copy/Display
     Buffer(BufferGrpCmd), // 0x67
     Flash(FlashGrpCmd), // 0x68
     Op0x69,
@@ -2403,7 +2422,7 @@ pub enum Opcode {
     MessageWin(MessageWinCmd), // 0x72
     SystemVar(SystemVarCmd), // 0x73
     PopupMenu(PopupMenuCmd), // 0x74
-    SetVol(SetVolCmd), // 0x75
+    Volume(VolumeCmd), // 0x75
     NovelMode(NovelModeCmd), // 0x76
     Op0x7f,
     Unknown0xea(Val), // 0xea
@@ -2427,6 +2446,13 @@ named!(pub opcode_0x04<&[u8], Opcode, CustomError<&[u8]>>,
        do_parse!(
            a: text_win_cmd >>
            (Opcode::TextWin(a))
+       )
+);
+
+named!(pub opcode_0x0b<&[u8], Opcode, CustomError<&[u8]>>,
+       do_parse!(
+           a: grp_cmd >>
+           (Opcode::Graphics(a))
        )
 );
 
@@ -2454,7 +2480,7 @@ named!(pub opcode_0x13<&[u8], Opcode, CustomError<&[u8]>>,
 named!(pub opcode_0x15<&[u8], Opcode, CustomError<&[u8]>>,
        do_parse!(
            a: scene_conditions >>
-               b: le_u32 >>
+               b: scene_pos >>
                (Opcode::Condition(a, b))
        )
 );
@@ -2482,15 +2508,14 @@ named!(pub opcode_0x19<&[u8], Opcode, CustomError<&[u8]>>,
 
 named!(pub opcode_0x1b<&[u8], Opcode, CustomError<&[u8]>>,
     do_parse!(
-       // TODO sometimes appears at EOF
-       a: le_u32 >>
+       a: scene_pos >>
        (Opcode::Call(a))
     )
 );
 
 named!(pub opcode_0x1c<&[u8], Opcode, CustomError<&[u8]>>,
        do_parse!(
-           a: le_u32 >>
+           a: scene_pos >>
            (Opcode::Jump(a))
        )
 );
@@ -2499,8 +2524,8 @@ named!(pub opcode_0x1d<&[u8], Opcode, CustomError<&[u8]>>,
        do_parse!(
            a: le_u8 >>
            b: scene_value >>
-           c: count!(le_u32, a as usize) >>
-           (Opcode::TableCall(a, b, c))
+           c: count!(scene_pos, a as usize) >>
+           (Opcode::TableCall(b, c))
        )
 );
 
@@ -2508,8 +2533,8 @@ named!(pub opcode_0x1e<&[u8], Opcode, CustomError<&[u8]>>,
        do_parse!(
            a: le_u8 >>
            b: scene_value >>
-           c: count!(le_u32, a as usize) >>
-           (Opcode::TableJump(a, b, c))
+           c: count!(scene_pos, a as usize) >>
+           (Opcode::TableJump(b, c))
        )
 );
 
@@ -2860,7 +2885,7 @@ named!(pub opcode_0x74<&[u8], Opcode, CustomError<&[u8]>>,
 named!(pub opcode_0x75<&[u8], Opcode, CustomError<&[u8]>>,
        do_parse!(
            a: set_vol_cmd >>
-           (Opcode::SetVol(a))
+           (Opcode::Volume(a))
        )
 );
 
@@ -3005,3 +3030,19 @@ named!(pub avg32_scene<&[u8], AVG32Scene, CustomError<&[u8]>>,
 named!(pub opcodes<&[u8], Vec<Opcode>, CustomError<&[u8]>>,
                dbg_dmp!(many1!(opcode))
 );
+
+
+#[cfg(test)]
+mod tests {
+    use crate::parser::*;
+
+    #[test]
+    fn parse_value() {
+        assert_eq!(Val(0x00), scene_value(&[0x10]).unwrap().1);
+        assert_eq!(Val(0x0F), scene_value(&[0x1F]).unwrap().1);
+        assert_eq!(Val(0x800), scene_value(&[0x20, 0x80]).unwrap().1);
+        assert_eq!(Val(0x40804), scene_value(&[0x34, 0x80, 0x40]).unwrap().1);
+        assert_eq!(Val(0xFFFFF), scene_value(&[0x3F, 0xFF, 0xFF]).unwrap().1);
+        assert_eq!(Val(0xFFFFFFF), scene_value(&[0x4F, 0xFF, 0xFF, 0xFF]).unwrap().1);
+    }
+}

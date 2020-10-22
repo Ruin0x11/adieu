@@ -1,9 +1,6 @@
-[package]
-name = "adieu"
-version = "0.1.0"
-authors = ["Ruin0x11 <ipickering2@gmail.com>"]
-edition = "2018"
+[workspace]
 
-[dependencies]
-avg32 = { path = "avg32" }
-anyhow = "1.0"
+members = [
+    "avg32",
+    "adieu",
+]

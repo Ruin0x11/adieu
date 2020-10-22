@@ -1,8 +1,15 @@
 #[macro_use] extern crate nom;
 #[macro_use] extern crate nom_trace;
+extern crate serde;
+#[macro_use] extern crate serde_derive;
 extern crate encoding_rs;
+extern crate byteorder;
+
+#[cfg(test)]
+#[macro_use] extern crate pretty_assertions;
 
 pub mod parser;
+pub mod write;
 
 pub use parser::AVG32Scene;
 use std::fs::File;
@@ -40,12 +47,4 @@ pub fn load_ops(bytes: &[u8]) -> Result<Vec<parser::Opcode>, &'static str> {
     print_trace!();
 
     res
-}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn it_works() {
-        assert_eq!(2 + 2, 4);
-    }
 }

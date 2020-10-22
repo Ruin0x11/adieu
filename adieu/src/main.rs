@@ -1,5 +1,16 @@
 extern crate avg32;
+extern crate serde;
+extern crate lexpr;
+extern crate serde_lexpr;
 extern crate anyhow;
+
+#[cfg(test)]
+#[macro_use] extern crate pretty_assertions;
+
+#[cfg(test)]
+use pretty_assertions::{assert_eq, assert_ne};
+
+mod disasm;
 
 use std::fs;
 use anyhow::Result;
@@ -21,8 +32,8 @@ fn readall() -> Result<()> {
 }
 
 fn main() -> Result<()> {
-    readall()?;
-    println!("{:x?}", avg32::load(&"SEEN/SEEN030.TXT"));
+    let scene = avg32::load(&"SEEN/SEEN020.TXT").unwrap();
+    println!("{}", disasm::disassemble(&scene));
 
     Ok(())
 }
