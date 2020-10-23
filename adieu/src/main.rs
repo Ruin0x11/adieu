@@ -21,6 +21,7 @@ use std::path::{Path, PathBuf};
 use anyhow::Result;
 use clap::{Arg, App, SubCommand, ArgMatches, crate_version, crate_authors};
 use avg32::archive::{self, Archive};
+use avg32::font;
 use avg32::write::Writeable;
 
 fn get_app<'a, 'b>() -> App<'a, 'b> {
@@ -86,6 +87,13 @@ fn get_app<'a, 'b>() -> App<'a, 'b> {
                     .arg(Arg::with_name("FILE")
                          .required(true)
                          .help("SEEN<XXX>.adieu file")
+                         .index(1))
+        )
+        .subcommand(SubCommand::with_name("font")
+                    .about("Reads FN.DAT")
+                    .arg(Arg::with_name("FILE")
+                         .required(true)
+                         .help("FN.DAT file")
                          .index(1)))
 }
 
@@ -102,12 +110,12 @@ fn cmd_unpack(sub_matches: &ArgMatches) -> Result<()> {
 
     for (i, entry) in arc.entries.iter().enumerate() {
         let data = &arc.data[i];
+        let decomp = data.decompress()?;
         if raw {
             let output_file = output_dir.join(&entry.filename);
             let mut file = File::create(&output_file)?;
-            data.write(&mut file)?;
+            decomp.write(&mut file)?;
         } else {
-            let decomp = data.decompress()?;
             let scene = avg32::load_bytes(&decomp)?;
             let output_file = output_dir.join(PathBuf::from(&entry.filename).with_extension("adieu"));
             let mut file = File::create(&output_file)?;
@@ -145,9 +153,10 @@ fn cmd_repack(sub_matches: &ArgMatches) -> Result<()> {
 
             let mut bytes = Vec::new();
             scene.write(&mut bytes)?;
+            let comp = archive::compress(&bytes)?;
 
             let filename = String::from(path.with_extension("TXT").file_name().unwrap().to_str().unwrap());
-            arc.add_entry(filename, bytes)?;
+            arc.add_entry(filename, comp)?;
         }
     }
 
@@ -196,6 +205,51 @@ fn cmd_asm(sub_matches: &ArgMatches) -> Result<()> {
     Ok(())
 }
 
+fn cmd_font(sub_matches: &ArgMatches) -> Result<()> {
+    let input_file = Path::new(sub_matches.value_of("FILE").unwrap());
+
+    let font = font::load(&input_file)?;
+
+    let print = |c| {
+        match c {
+            0 => print!("\""),
+            1 => print!("@"),
+            2 => print!("@"),
+            3 => print!("%"),
+            4 => print!("#"),
+            5 => print!("*"),
+            6 => print!("+"),
+            7 => print!("="),
+            8 => print!("="),
+            9 => print!("-"),
+            10 => print!("-"),
+            11 => print!(":"),
+            12 => print!(":"),
+            13 => print!("."),
+            14 => print!(" "),
+            15 => print!(" "),
+            _ => print!(" ")
+        }
+    };
+
+    for char in font.chars.iter() {
+        for y in 0..24 {
+            for x in 0..12 {
+                let c = char[y * 12 + x];
+                let a = (c & 0xF0) >> 4;
+                let b = c & 0x0F;
+
+                print(a);
+                print(b);
+            }
+            println!("")
+        }
+        println!("======================")
+    }
+
+    Ok(())
+}
+
 fn main() -> Result<()> {
     env_logger::init();
 
@@ -206,6 +260,7 @@ fn main() -> Result<()> {
         ("repack", Some(sub_matches)) => cmd_repack(&sub_matches)?,
         ("disasm", Some(sub_matches)) => cmd_disasm(&sub_matches)?,
         ("asm",    Some(sub_matches)) => cmd_asm(&sub_matches)?,
+        ("font",   Some(sub_matches)) => cmd_font(&sub_matches)?,
         _ => get_app().print_long_help()?
     }
 

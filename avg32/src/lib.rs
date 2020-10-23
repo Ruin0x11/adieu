@@ -10,6 +10,7 @@ extern crate anyhow;
 #[macro_use] extern crate pretty_assertions;
 
 pub mod archive;
+pub mod font;
 pub mod parser;
 pub mod write;
 
