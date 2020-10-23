@@ -20,6 +20,16 @@ impl Writeable for u8 {
     }
 }
 
+impl Writeable for u16 {
+    fn byte_size(&self) -> usize {
+        mem::size_of::<u16>()
+    }
+
+    fn write<W: Write>(&self, writer: &mut W) -> Result<(), io::Error> {
+        writer.write_u16::<LittleEndian>(*self)
+    }
+}
+
 impl Writeable for u32 {
     fn byte_size(&self) -> usize {
         mem::size_of::<u32>()

@@ -19,7 +19,7 @@ impl<I> ParseError<I> for CustomError<I> {
   }
 }
 
-type ParseResult<'a, I> = IResult<&'a [u8], I, CustomError<&'a [u8]>>;
+pub type ParseResult<'a, I> = IResult<&'a [u8], I, CustomError<&'a [u8]>>;
 
 // TODO
 const SYS_VERSION: u32 = 1714;
@@ -78,7 +78,7 @@ fn decode_sjis(input: &[u8]) -> Result<String, CustomError<&[u8]>> {
     }
 }
 
-named!(c_string<&[u8], String, CustomError<&[u8]>>,
+named!(pub c_string<&[u8], String, CustomError<&[u8]>>,
     do_parse!(
         s: map_res!(take_until!("\0"), decode_sjis) >>
         tag!("\0") >>

@@ -270,7 +270,8 @@ fn convert_label_to_byte_positions(opcodes: &mut [Opcode], positions: &HashMap<S
 pub fn disassemble(scene: &AVG32Scene) -> Result<String> {
     let resolved = resolve_labels(&scene)?;
 
-    let sexp = serde_lexpr::to_string(&resolved).unwrap();
+    let sexp = format!(";; -*- mode: lisp -*- \n\n{}", serde_lexpr::to_string(&resolved).unwrap());
+
     Ok(sexp)
 }
 
